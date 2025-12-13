@@ -15,14 +15,14 @@ from database import engine, SessionLocal
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
 
-# Gemini Ayarları
+# Gemini Ayarlarıd
 if api_key:
     genai.configure(api_key=api_key)
 
    # model = genai.GenerativeModel("gemini-1.5-flash")
 
 # Yeni hali (Daha zeki, daha derin analiz yapan "Pro" versiyon):
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 # Veritabanı bağlantısı başarılı mı kontrol et
 db_available = False
 try:
@@ -64,6 +64,7 @@ def get_db():
 # Pydantic Model (Gelen Veri Formatı)
 class RuyaIstegi(BaseModel):
     ruya_metni: str
+    user_id: str  # <--- YENİ
 
 
 # Health Check Endpoint
@@ -89,9 +90,17 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
+        baslik_prompt = f"Aşağıdaki rüya yorumu için kısa, merak uyandırıcı ve en fazla 4-5 kelimelik sadece bir adet başlık oluştur ve sadece başlığı yaz: '{ai_cevabi}'" 
+        baslik_response = chat.send_message(baslik_prompt)
+        ruya_basligi = baslik_response.text.strip().replace('"', '') # Tırnak işaretlerini temizle
+        
+        
+        
         # B. MySQL'e Kaydet
         yeni_ruya = models.Ruya(
             ruya_metni=istek.ruya_metni, 
+            user_id=istek.user_id, # <--- YENİ
+            baslik=ruya_basligi,
             yorum=ai_cevabi,
             tarih= otomatik_tarih # İstersen datetime ile otomatik tarih atabiliriz
         )
@@ -99,15 +108,16 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         db.commit() # Kaydı kesinleştir
         db.refresh(yeni_ruya) # Yeni ID'yi al
 
-        return {"sonuc": ai_cevabi, "id": yeni_ruya.id}
+        return {"baslik": ruya_basligi, "sonuc": ai_cevabi, "id": yeni_ruya.id}
 
     except Exception as e:
         return {"sonuc": f"Hata oluştu: {str(e)}"}
 
-# 2. Geçmiş Rüyaları Listele (Yeni Özellik!)
+# 2. Geçmiş Rüyaları Listele (GÜNCELLENDİ: Sadece User ID'ye göre getirir)
 @app.get("/gecmis")
-def gecmis_getir(db: Session = Depends(get_db)):
-    ruyalar = db.query(models.Ruya).all()
+def gecmis_getir(user_id: str, db: Session = Depends(get_db)):
+    # .filter() komutu ile sadece o kullanıcıya ait verileri süzüyoruz
+    ruyalar = db.query(models.Ruya).filter(models.Ruya.user_id == user_id).all()
     return ruyalar
 
 
