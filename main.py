@@ -9,9 +9,9 @@ import uvicorn
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# --- Kendi oluşturduğumuz dosyalar ---
+# --- Kendi oluşturduğumupip z dosyalar ---
 import models
-from ruyatabiri.databae import engine, SessionLocal
+from ruyatabiri.database import engine, SessionLocal
 
 # --- Ayarlar ---
 load_dotenv()
