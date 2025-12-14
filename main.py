@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 # --- Kendi oluşturduğumupip z dosyalar ---
 import models
-from ruyatabiri.database import engine, SessionLocal
+from database import engine, SessionLocal
 
 # --- Ayarlar ---
 load_dotenv()
