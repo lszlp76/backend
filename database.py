@@ -1,30 +1,31 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
-# .env dosyasını yükle
 load_dotenv()
 
-# Ortam değişkenlerini al
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT", "3306") # Bulamazsa varsayılan 3306 olsun
-DB_NAME = os.getenv("DB_NAME")
+# 1. Ortamdan Veritabanı URL'ini almaya çalış (Render'da bu dolu gelir)
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Bağlantı adresini dinamik olarak oluştur
-# Format: mysql+pymysql://user:password@host:port/database_name
-URL_DATABASE = f"mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-print("Database URL:", URL_DATABASE)
+# 2. Render bazen 'postgres://' verir, SQLAlchemy 'postgresql://' ister. Düzeltme:
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Engine oluşturulurken 2 kritik ayar ekliyoruz:
-engine = create_engine(
-    URL_DATABASE,
-    pool_recycle=60,    # Her 60 saniyede bir bağlantıyı tazele (Sunucu koparmadan biz yenileyelim)
-    pool_pre_ping=True  # Her sorgudan önce "Orada mısın?" diye kontrol et. Cevap yoksa yeni bağlan.
-)
+# 3. Eğer URL yoksa (Yani Localdeysen) SQLite kullan
+if not SQLALCHEMY_DATABASE_URL:
+    SQLALCHEMY_DATABASE_URL = "sqlite:///./ruyalar.db"
+
+# 4. Motoru (Engine) Başlat
+if "sqlite" in SQLALCHEMY_DATABASE_URL:
+    # SQLite için özel ayar (check_same_thread)
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+    )
+else:
+    # PostgreSQL için (Render)
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
