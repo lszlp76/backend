@@ -19,3 +19,4 @@ class UserProfile(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String(100), unique=True, index=True) # Her kullanıcının 1 profili olur
     avatar_choice = Column(String(50), nullable=True) # 'female' (Kleopatra) veya 'male' (Akhenaton)
+    zodiac = Column(String(50), nullable=True)

@@ -26,6 +26,10 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 # --- Veritabanı Başlatma ---
 db_available = False
 try:
+    # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
+    # Bu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
+    models.Base.metadata.drop_all(bind=engine) 
+    # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
     db_available = True
     print("✅ Veritabanı bağlantısı başarılı!")
@@ -67,6 +71,7 @@ class RuyaIstegi(BaseModel):
 class AvatarUpdate(BaseModel):
     user_id: str
     choice: str 
+    zodiac: str | None = None # <--- YENİ: Burç bilgisi (Opsiyonel)
 
 # ==========================================
 #                 ENDPOINTLER
@@ -80,39 +85,52 @@ def health_check():
     }
 
 # --- 1. AVATAR / PROFİL İŞLEMLERİ ---
+# --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
 
 @app.get("/get-profile/{user_id}")
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     if not profile:
-        return {"choice": None}
-    return {"choice": profile.avatar_choice}
+        return {"choice": None, "zodiac": None}
+    return {"choice": profile.avatar_choice, "zodiac": profile.zodiac} # Zodiac eklendi
 
-@app.post("/set-avatar")
-def set_avatar(data: AvatarUpdate, db: Session = Depends(get_db)):
+
+@app.post("/set-profile") # İsmi set-avatar yerine set-profile yaptık (daha genel)
+def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == data.user_id).first()
+    
     if not profile:
-        new_profile = models.UserProfile(user_id=data.user_id, avatar_choice=data.choice)
+        new_profile = models.UserProfile(
+            user_id=data.user_id, 
+            avatar_choice=data.choice,
+            zodiac=data.zodiac # <--- YENİ
+        )
         db.add(new_profile)
     else:
         profile.avatar_choice = data.choice
+        if data.zodiac: # Eğer burç gönderildiyse güncelle
+            profile.zodiac = data.zodiac
+    
     db.commit()
-    return {"status": "success", "choice": data.choice}
+    return {"status": "success", "choice": data.choice, "zodiac": data.zodiac}
 
-
-# --- 2. RÜYA ANALİZ VE KAYIT (GÜNCELLENDİ) ---
-
+# --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     try:
+        # Önce kullanıcının burcunu veritabanından çekelim
+        user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
+        user_zodiac = user_profile.zodiac if user_profile and user_profile.zodiac else "Unknown"
+
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y %H:%M")
         chat = model.start_chat(history=[])
 
-        # A) YORUM İSTEĞİ (Dynamic Language Prompt)
-        # Promptu İngilizce yazdık ama içine "Input dilini algıla ve o dilde cevap ver" emri koyduk.
+        # A) YORUM İSTEĞİ (Prompt'a Burç Eklendi)
         prompt = f"""
-        Act as an expert psychologist following the Jungian school. 
-        Analyze the following dream in terms of symbols, archetypes, and emotional state.
+        Act as an expert psychologist following the Jungian school and also consider astrological archetypes.
+        
+        CONTEXT: The user's zodiac sign is: {user_zodiac}. 
+        If the zodiac sign is known, subtly weave this into the interpretation (e.g., mention traits associated with {user_zodiac} if relevant to the dream).
         
         CRITICAL INSTRUCTION: Detect the language of the dream text provided below. 
         Provide your response (the analysis) STRICTLY IN THAT SAME LANGUAGE.
