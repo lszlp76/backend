@@ -20,3 +20,7 @@ class UserProfile(Base):
     user_id = Column(String(100), unique=True, index=True) # Her kullanıcının 1 profili olur
     avatar_choice = Column(String(50), nullable=True) # 'female' (Kleopatra) veya 'male' (Akhenaton)
     zodiac = Column(String(50), nullable=True)
+    # --- YENİ EKLENEN ALANLAR ---
+    is_premium = Column(Boolean, default=False)  # Premium üye mi?
+    daily_usage_count = Column(Integer, default=0) # Bugün kaç rüya attı?
+    last_usage_date = Column(Date, default=datetime.date.today) # En son ne zaman rüya attı?

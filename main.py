@@ -28,7 +28,7 @@ db_available = False
 try:
     # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
     # Bu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
-    # models.Base.metadata.drop_all(bind=engine) 
+    models.Base.metadata.drop_all(bind=engine) 
     # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
     db_available = True
@@ -86,13 +86,19 @@ def health_check():
 
 # --- 1. AVATAR / PROFİL İŞLEMLERİ ---
 # --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
-
+# --- GÜNCELLENEN: GET PROFILE (Premium bilgisini de gönderiyoruz) ---
 @app.get("/get-profile/{user_id}")
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     if not profile:
-        return {"choice": None, "zodiac": None}
-    return {"choice": profile.avatar_choice, "zodiac": profile.zodiac} # Zodiac eklendi
+        # Profil yoksa varsayılan değerler
+        return {"choice": None, "zodiac": None, "is_premium": False}
+    
+    return {
+        "choice": profile.avatar_choice, 
+        "zodiac": profile.zodiac,
+        "is_premium": profile.is_premium # <--- EKLENDİ
+    }
 
 
 @app.post("/set-profile") # İsmi set-avatar yerine set-profile yaptık (daha genel)
@@ -115,17 +121,40 @@ def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
     return {"status": "success", "choice": data.choice, "zodiac": data.zodiac}
 
 # --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
+# --- GÜNCELLENEN: ANALİZ ET (Limit Kontrolü Eklendi) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     try:
-        # Önce kullanıcının burcunu veritabanından çekelim
+        # 1. Kullanıcı Profilini Getir veya Oluştur
         user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
-        user_zodiac = user_profile.zodiac if user_profile and user_profile.zodiac else "Unknown"
+        
+        if not user_profile:
+            user_profile = models.UserProfile(
+                user_id=istek.user_id, 
+                is_premium=False, # Varsayılan Ücretsiz
+                daily_usage_count=0, 
+                last_usage_date=date.today()
+            )
+            db.add(user_profile)
+            db.commit()
 
+        # 2. Tarih Kontrolü (Gün değiştiyse sayacı sıfırla)
+        bugun = date.today()
+        if user_profile.last_usage_date != bugun:
+            user_profile.daily_usage_count = 0
+            user_profile.last_usage_date = bugun
+            db.commit()
+
+        # 3. KISITLAMA MANTIĞI: Premium değilse ve 1 hakkı dolduysa
+        if not user_profile.is_premium and user_profile.daily_usage_count >= 1:
+            raise HTTPException(status_code=403, detail="LIMIT_REACHED")
+
+        # --- BURADAN SONRASI ESKİ KODLA AYNI (AI İşlemleri) ---
+        user_profile_zodiac = user_profile.zodiac if user_profile.zodiac else "Unknown"
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y %H:%M")
+        
         chat = model.start_chat(history=[])
-
-        # A) YORUM İSTEĞİ (Prompt'a Burç Eklendi)
+        
         prompt = f"""
         Act as an expert psychologist following the Jungian school and also consider astrological archetypes.
         
@@ -141,47 +170,34 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
-        # B) BAŞLIK VE DUYGU İSTEĞİ (Dynamic Language)
-        # Formatın bozulmaması için "Labelsız" (Etiketsiz) çıktı istiyoruz.
-        ek_bilgi_prompt = f"""
-        Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion.
-        
-        CRITICAL INSTRUCTION: Write the title and emotion IN THE SAME LANGUAGE as the dream.
-        
-        Output format strictly: Title | Emotion
-        (Do NOT use labels like 'Title:', 'Baslik:', 'Emotion:'. Just the values separated by a vertical bar).
-        """
+        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Output format strictly: Title | Emotion"
         ek_response = chat.send_message(ek_bilgi_prompt)
         ek_metin = ek_response.text.strip()
         
-        # Değişken Parsing Mantığı (Artık dile bağımlı "BAŞLIK:" kelimesini aramıyoruz)
         ruya_basligi = "Bilinçaltı Mesajı"
         ruya_duygusu = "Nötr"
-        
         try:
-            # Yapay zeka "Rüya | Korku" veya "Dream | Fear" şeklinde dönecek.
             if "|" in ek_metin:
                 parts = ek_metin.split('|')
                 if len(parts) >= 2:
                     ruya_basligi = parts[0].strip().replace('"', '')
                     ruya_duygusu = parts[1].strip().replace('.', '')
             else:
-                # Yedek plan: Eğer | koymazsa tüm metni başlık yap
                 ruya_basligi = ek_metin
         except:
             pass 
 
-        # C) GÖRSEL PROMPT İSTEĞİ (Burası Hep İngilizce Kalmalı)
-        # Görsel oluşturucular İngilizce prompt ile daha iyi çalışır.
-        gorsel_prompt_istegi = f"Based on this dream: '{istek.ruya_metni}', create a short, vivid, surrealist art style image prompt in English. Maximum 15 words. Just the prompt, no explanation."
+        gorsel_prompt_istegi = f"""Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion.
+        CRITICAL INSTRUCTION: Write the title and emotion IN THE SAME LANGUAGE as the dream.
+        
+        Output format strictly: Title | Emotion
+        (Do NOT use labels like 'Title:', 'Baslik:', 'Emotion:'. Just the values separated by a vertical bar)."""
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
         gorsel_prompt = gorsel_response.text.strip()
         
-        # D) URL OLUŞTURMA
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
         resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&seed={datetime.now().microsecond}&nologo=true"
 
-        # E) VERİTABANINA KAYIT
         yeni_ruya = models.Ruya(
             user_id=istek.user_id,
             ruya_metni=istek.ruya_metni, 
@@ -192,6 +208,10 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             tarih=otomatik_tarih
         )
         db.add(yeni_ruya)
+        
+        # --- ÖNEMLİ: Kullanım Sayacını Artır ---
+        user_profile.daily_usage_count += 1
+        
         db.commit()
         db.refresh(yeni_ruya)
 
@@ -203,9 +223,11 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             "id": yeni_ruya.id
         }
 
+    except HTTPException as he:
+        raise he 
     except Exception as e:
         return {"sonuc": f"Error: {str(e)}"}
-
+    
 # --- 3. GEÇMİŞ RÜYALAR ---
 
 @app.get("/gecmis")
@@ -228,3 +250,8 @@ def ruya_sil(id: int, db: Session = Depends(get_db)):
 # --- SUNUCUYU BAŞLAT ---
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
