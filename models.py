@@ -1,5 +1,8 @@
 from sqlalchemy import Column, Integer, String, Text
 from database import Base
+from sqlalchemy import Boolean, Date
+import datetime # <--- Bu satır eklendi (Tarih işlemleri için)
+
 
 class Ruya(Base):
     __tablename__ = 'ruyalar'
