@@ -147,7 +147,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             db.commit()
 
         # 3. KISITLAMA MANTIĞI: Premium değilse ve 1 hakkı dolduysa
-        if not user_profile.is_premium and user_profile.daily_usage_count >= 1:
+        if not user_profile.is_premium and user_profile.daily_usage_count >= 100:
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
 
         # --- BURADAN SONRASI ESKİ KODLA AYNI (AI İşlemleri) ---
