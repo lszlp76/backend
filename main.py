@@ -1,6 +1,6 @@
 import os
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, date # <--- DÜZELTME 1: date buraya eklendi
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -159,8 +159,8 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         prompt = f"""
         Act as an expert psychologist following the Jungian school and also consider astrological archetypes.
         
-        CONTEXT: The user's zodiac sign is: {user_zodiac}. 
-        If the zodiac sign is known, subtly weave this into the interpretation (e.g., mention traits associated with {user_zodiac} if relevant to the dream).
+        CONTEXT: The user's zodiac sign is: {user_profile_zodiac}. 
+        If the zodiac sign is known, subtly weave this into the interpretation (e.g., mention traits associated with {user_profile_zodiac} if relevant to the dream).
         
         CRITICAL INSTRUCTION: Detect the language of the dream text provided below. 
         Provide your response (the analysis) STRICTLY IN THAT SAME LANGUAGE.
