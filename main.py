@@ -29,7 +29,7 @@ db_available = False
 try:
     # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
     # Bu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
-    models.Base.metadata.drop_all(bind=engine) 
+    #models.Base.metadata.drop_all(bind=engine) 
     # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
     db_available = True
@@ -74,6 +74,9 @@ class AvatarUpdate(BaseModel):
     choice: str 
     zodiac: str | None = None # <--- YENİ: Burç bilgisi (Opsiyonel)
 
+class PremiumUpdate(BaseModel):
+    user_id: str
+    is_premium: bool
 # ==========================================
 #                 ENDPOINTLER
 # ==========================================
@@ -120,6 +123,29 @@ def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success", "choice": data.choice, "zodiac": data.zodiac}
 
+# --- IAP TAMAMLANDI ---
+@app.post("/set-premium")
+def set_premium(data: PremiumUpdate, db: Session = Depends(get_db)):
+    profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == data.user_id).first()
+    
+    if not profile:
+        # Profil yoksa oluştur ve Premium yap
+        new_profile = models.UserProfile(
+            user_id=data.user_id, 
+            is_premium=data.is_premium,
+            daily_usage_count=0,
+            lifetime_usage_count=0,
+            last_usage_date=date.today()
+        )
+        db.add(new_profile)
+    else:
+        # Profil varsa güncelle
+        profile.is_premium = data.is_premium
+    
+    db.commit()
+    return {"status": "success", "is_premium": data.is_premium}
+
+
 # --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
 # --- 2. RÜYA ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
 @app.post("/analiz-et")
@@ -164,17 +190,44 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         
         # B. Rüya Yorumu İsteği
         prompt = f"""
-        Act as an expert psychologist following the Jungian school and also consider astrological archetypes.
-        
-        CONTEXT: The user's zodiac sign is: {user_profile_zodiac}. 
-        If the zodiac sign is known, subtly weave this into the interpretation (e.g., mention traits associated with {user_profile_zodiac} if relevant to the dream).
-        
-        CRITICAL INSTRUCTION: Detect the language of the dream text provided below. 
-        Provide your response (the analysis) STRICTLY IN THAT SAME LANGUAGE.
-        Keep the tone constructive, insightful, and conversational.
+### SYSTEM ROLE & OBJECTIVE
+You are an empathetic, insightful counselor specialized in symbolic interpretation, archetypal psychology, and astrological correspondences and coming from Jungian school. Your goal is to analyze the user's dream by 
+decoding symbols, emotional undertones, and latent meanings without explicitly mentioning "Jungian school".
 
-        Dream Text: {istek.ruya_metni}
-        """
+### USER CONTEXT
+- **Zodiac Sign:** {user_profile_zodiac}
+- **Membership Status:** {"PREMIUM" if user_profile.is_premium else "FREE"}
+- **Dream Content:** "{istek.ruya_metni}"
+
+### INSTRUCTIONS
+
+1. **Language Detection & Output:**
+   - Analyze the "Dream Content" to detect its language. Do not mention you are interpreting user's dream.
+   - **CRITICAL:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
+   - Do NOT mention that you detected the language. Just start speaking in it.
+
+2. **Astrological Integration:**
+   - Subtly weave the user's Zodiac sign ({user_profile_zodiac}) into the analysis.
+   - Mention traits associated with this sign only if they amplify the dream's meaning (e.g., "As a Scorpio, your natural intensity might be fueling this image..."). Do not force it if it doesn't fit.
+
+3. **Analysis Logic (Conditional):**
+
+   **IF USER IS PREMIUM:**
+   - **Depth:** Provide a profound, multi-layered analysis. Explore the "shadow" aspects, emotional resonance, and archetypal imagery.
+   - **Structure:**
+     - Decode the key symbols.
+     - Connect the dream to the user's waking life emotions.
+     - **Behavioral Suggestion:** Conclude with a concrete, psychological exercise or thought pattern change to help the user feel better or integrate the dream's message.
+   - **Tone:** Deep, therapeutic, and transformative.
+
+   **IF USER IS FREE (Non-Premium):**
+   - **Constraint:** Keep the response strictly under 50 words.
+   - **Content:** Provide a "teaser" interpretation. Identify the *single most important symbol* and its surface-level meaning. Be intriguing but incomplete.
+   - **Call to Action (CTA):** You MUST end the response by gently encouraging the user to upgrade to the Premium plan to unlock the full, detailed psychological analysis and behavioral advice.
+
+### OUTPUT GENERATION
+Based on the logic above, provide the response now:
+"""
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
