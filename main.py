@@ -92,15 +92,14 @@ def health_check():
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     if not profile:
-        # Profil yoksa varsayılan değerler
-        return {"choice": None, "zodiac": None, "is_premium": False}
+        return {"choice": None, "zodiac": None, "is_premium": False, "usage_count": 0}
     
     return {
         "choice": profile.avatar_choice, 
         "zodiac": profile.zodiac,
-        "is_premium": profile.is_premium # <--- EKLENDİ
+        "is_premium": profile.is_premium,
+        "usage_count": profile.lifetime_usage_count # <--- Flutter'a toplam sayıyı gönderiyoruz
     }
-
 
 @app.post("/set-profile") # İsmi set-avatar yerine set-profile yaptık (daha genel)
 def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
@@ -122,40 +121,48 @@ def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
     return {"status": "success", "choice": data.choice, "zodiac": data.zodiac}
 
 # --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
-# --- GÜNCELLENEN: ANALİZ ET (Limit Kontrolü Eklendi) ---
+# --- 2. RÜYA ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     try:
-        # 1. Kullanıcı Profilini Getir veya Oluştur
+        # 1. KULLANICI PROFİLİNİ GETİR VEYA OLUŞTUR
         user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
         
         if not user_profile:
             user_profile = models.UserProfile(
                 user_id=istek.user_id, 
-                is_premium=False, # Varsayılan Ücretsiz
+                is_premium=False,           # Varsayılan: Ücretsiz
                 daily_usage_count=0, 
+                lifetime_usage_count=0,     # Yeni kullanıcı 0 rüya ile başlar
                 last_usage_date=date.today()
             )
             db.add(user_profile)
             db.commit()
 
-        # 2. Tarih Kontrolü (Gün değiştiyse sayacı sıfırla)
+        # 2. GÜNLÜK TARİH KONTROLÜ (İstatistiksel temizlik için)
+        # Gün değiştiyse günlük sayacı sıfırla (lifetime'a dokunma)
         bugun = date.today()
         if user_profile.last_usage_date != bugun:
             user_profile.daily_usage_count = 0
             user_profile.last_usage_date = bugun
             db.commit()
 
-        # 3. KISITLAMA MANTIĞI: Premium değilse ve 1 hakkı dolduysa
-        if not user_profile.is_premium and user_profile.daily_usage_count >= 100:
+        # 3. KRİTİK KONTROL: LİMİT AŞIMI
+        # Kullanıcı Premium DEĞİLSE ve Toplam Hakkı 5'e ulaşmışsa işlemi durdur.
+        LIFETIME_LIMIT = 5
+        
+        if not user_profile.is_premium and user_profile.lifetime_usage_count >= LIFETIME_LIMIT:
+            # Frontend bu hatayı yakalayıp Premium diyalogunu açacak
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
 
-        # --- BURADAN SONRASI ESKİ KODLA AYNI (AI İşlemleri) ---
+        # --- AI İŞLEMLERİ (BURADAN SONRASI YORUMLAMA MANTIĞI) ---
         user_profile_zodiac = user_profile.zodiac if user_profile.zodiac else "Unknown"
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y %H:%M")
         
+        # A. Gemini Sohbetini Başlat
         chat = model.start_chat(history=[])
         
+        # B. Rüya Yorumu İsteği
         prompt = f"""
         Act as an expert psychologist following the Jungian school and also consider astrological archetypes.
         
@@ -171,6 +178,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
+        # C. Başlık ve Duygu Analizi İsteği
         ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Output format strictly: Title | Emotion"
         ek_response = chat.send_message(ek_bilgi_prompt)
         ek_metin = ek_response.text.strip()
@@ -188,17 +196,19 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         except:
             pass 
 
-        gorsel_prompt_istegi = f"""Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion.
-        CRITICAL INSTRUCTION: Write the title and emotion IN THE SAME LANGUAGE as the dream.
-        
-        Output format strictly: Title | Emotion
-        (Do NOT use labels like 'Title:', 'Baslik:', 'Emotion:'. Just the values separated by a vertical bar)."""
+        # D. Görsel Prompt Oluşturma
+        gorsel_prompt_istegi = f"""Based on the dream above, create a highly detailed, mystical, and artistic image description suitable for an AI image generator.
+        Describe the scene, lighting, and mood.
+        CRITICAL: The output must be in English regardless of the dream language.
+        """
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
         gorsel_prompt = gorsel_response.text.strip()
         
+        # E. Pollinations.ai ile Resim URL'i Oluşturma
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
         resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&seed={datetime.now().microsecond}&nologo=true"
 
+        # 4. VERİTABANINA KAYIT
         yeni_ruya = models.Ruya(
             user_id=istek.user_id,
             ruya_metni=istek.ruya_metni, 
@@ -210,8 +220,9 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         )
         db.add(yeni_ruya)
         
-        # --- ÖNEMLİ: Kullanım Sayacını Artır ---
-        user_profile.daily_usage_count += 1
+        # 5. SAYAÇLARI GÜNCELLEME (EN ÖNEMLİ KISIM)
+        user_profile.daily_usage_count += 1    # Günlük istatistik için
+        user_profile.lifetime_usage_count += 1 # Kalıcı limit kontrolü için (+1 ekleniyor)
         
         db.commit()
         db.refresh(yeni_ruya)
@@ -227,8 +238,8 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     except HTTPException as he:
         raise he 
     except Exception as e:
-        return {"sonuc": f"Error: {str(e)}"}
-    
+        print(f"Analiz Hatası: {e}") # Hata ayıklama için konsola yazdır
+        raise HTTPException(status_code=500, detail=f"Sunucu hatası: {str(e)}")
 # --- 3. GEÇMİŞ RÜYALAR ---
 
 @app.get("/gecmis")

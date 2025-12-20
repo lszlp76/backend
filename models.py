@@ -20,10 +20,14 @@ class UserProfile(Base):
     __tablename__ = 'user_profiles'
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String(100), unique=True, index=True) # Her kullanıcının 1 profili olur
-    avatar_choice = Column(String(50), nullable=True) # 'female' (Kleopatra) veya 'male' (Akhenaton)
+    user_id = Column(String(100), unique=True, index=True)
+    avatar_choice = Column(String(50), nullable=True)
     zodiac = Column(String(50), nullable=True)
-    # --- YENİ EKLENEN ALANLAR ---
-    is_premium = Column(Boolean, default=False)  # Premium üye mi?
-    daily_usage_count = Column(Integer, default=0) # Bugün kaç rüya attı?
-    last_usage_date = Column(Date, default=datetime.date.today) # En son ne zaman rüya attı?
+    is_premium = Column(Boolean, default=False)
+    
+    # --- YENİ EKLENEN SAYAÇ (Silme işleminden etkilenmez) ---
+    lifetime_usage_count = Column(Integer, default=0) 
+    
+    # (Eski günlük sayaçları isterseniz tutabilir veya silebilirsiniz, şimdilik kalsın)
+    daily_usage_count = Column(Integer, default=0) 
+    last_usage_date = Column(Date, default=datetime.date.today)
