@@ -28,8 +28,8 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 db_available = False
 try:
     # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
-    # Bu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
-    models.Base.metadata.drop_all(bind=engine) 
+    # B u satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
+    #models.Base.metadata.drop_all(bind=engine) 
     # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
     db_available = True
