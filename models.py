@@ -27,7 +27,10 @@ class UserProfile(Base):
     
     # --- YENİ EKLENEN SAYAÇ (Silme işleminden etkilenmez) ---
     lifetime_usage_count = Column(Integer, default=0) 
-    
+    # --- YENİ EKLENDİ ---
+    # Seçenekler: 'religious' (Dini), 'psychological' (Psikolojik), 'spiritual' (Spiritüel)
+    interpreter_type = Column(String(50), default="psychological") 
+    # --------------------
     # (Eski günlük sayaçları isterseniz tutabilir veya silebilirsiniz, şimdilik kalsın)
     daily_usage_count = Column(Integer, default=0) 
     last_usage_date = Column(Date, default=datetime.date.today)

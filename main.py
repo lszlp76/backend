@@ -69,10 +69,12 @@ class RuyaIstegi(BaseModel):
     ruya_metni: str
     user_id: str
 
+# --- MODEL GÜNCELLEMESİ ---
 class AvatarUpdate(BaseModel):
     user_id: str
     choice: str 
-    zodiac: str | None = None # <--- YENİ: Burç bilgisi (Opsiyonel)
+    zodiac: str | None = None
+    interpreter_type: str | None = None # <--- YENİ: Yorumcu Tipi
 
 class PremiumUpdate(BaseModel):
     user_id: str
@@ -91,20 +93,29 @@ def health_check():
 # --- 1. AVATAR / PROFİL İŞLEMLERİ ---
 # --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
 # --- GÜNCELLENEN: GET PROFILE (Premium bilgisini de gönderiyoruz) ---
+# --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
 @app.get("/get-profile/{user_id}")
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     if not profile:
-        return {"choice": None, "zodiac": None, "is_premium": False, "usage_count": 0}
+        # Varsayılan değerler
+        return {
+            "choice": None, 
+            "zodiac": None, 
+            "interpreter_type": "psychological", # Varsayılan: Bilimsel/Psikolojik
+            "is_premium": False, 
+            "usage_count": 0
+        }
     
     return {
         "choice": profile.avatar_choice, 
         "zodiac": profile.zodiac,
+        "interpreter_type": profile.interpreter_type if profile.interpreter_type else "psychological",
         "is_premium": profile.is_premium,
-        "usage_count": profile.lifetime_usage_count # <--- Flutter'a toplam sayıyı gönderiyoruz
+        "usage_count": profile.lifetime_usage_count
     }
 
-@app.post("/set-profile") # İsmi set-avatar yerine set-profile yaptık (daha genel)
+@app.post("/set-profile")
 def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == data.user_id).first()
     
@@ -112,16 +123,17 @@ def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
         new_profile = models.UserProfile(
             user_id=data.user_id, 
             avatar_choice=data.choice,
-            zodiac=data.zodiac # <--- YENİ
+            zodiac=data.zodiac,
+            interpreter_type=data.interpreter_type # <--- YENİ
         )
         db.add(new_profile)
     else:
-        profile.avatar_choice = data.choice
-        if data.zodiac: # Eğer burç gönderildiyse güncelle
-            profile.zodiac = data.zodiac
+        if data.choice: profile.avatar_choice = data.choice
+        if data.zodiac: profile.zodiac = data.zodiac
+        if data.interpreter_type: profile.interpreter_type = data.interpreter_type # <--- YENİ
     
     db.commit()
-    return {"status": "success", "choice": data.choice, "zodiac": data.zodiac}
+    return {"status": "success"}
 
 # --- IAP TAMAMLANDI ---
 @app.post("/set-premium")
@@ -148,91 +160,113 @@ def set_premium(data: PremiumUpdate, db: Session = Depends(get_db)):
 
 # --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
 # --- 2. RÜYA ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
+# --- 2. RÜYA ANALİZ (DÜZELTİLMİŞ & GARANTİLİ VERSİYON) ---
+# --- 2. RÜYA ANALİZ (YORUMCU MANTIĞI EKLENDİ) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     try:
-        # 1. KULLANICI PROFİLİNİ GETİR VEYA OLUŞTUR
+        # 1. KULLANICIYI BUL
         user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
         
+        # Eğer profil yoksa oluştur (Fallback)
         if not user_profile:
             user_profile = models.UserProfile(
                 user_id=istek.user_id, 
-                is_premium=False,           # Varsayılan: Ücretsiz
-                daily_usage_count=0, 
-                lifetime_usage_count=0,     # Yeni kullanıcı 0 rüya ile başlar
+                is_premium=False,
+                interpreter_type="psychological", # Varsayılan
                 last_usage_date=date.today()
             )
             db.add(user_profile)
             db.commit()
 
-        # 2. GÜNLÜK TARİH KONTROLÜ (İstatistiksel temizlik için)
-        # Gün değiştiyse günlük sayacı sıfırla (lifetime'a dokunma)
+        # ... (Limit ve Tarih kontrolleri aynı kalıyor) ...
         bugun = date.today()
         if user_profile.last_usage_date != bugun:
             user_profile.daily_usage_count = 0
             user_profile.last_usage_date = bugun
             db.commit()
 
-        # 3. KRİTİK KONTROL: LİMİT AŞIMI
-        # Kullanıcı Premium DEĞİLSE ve Toplam Hakkı 5'e ulaşmışsa işlemi durdur.
         LIFETIME_LIMIT = 5
-        
         if not user_profile.is_premium and user_profile.lifetime_usage_count >= LIFETIME_LIMIT:
-            # Frontend bu hatayı yakalayıp Premium diyalogunu açacak
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
 
-        # --- AI İŞLEMLERİ (BURADAN SONRASI YORUMLAMA MANTIĞI) ---
-        user_profile_zodiac = user_profile.zodiac if user_profile.zodiac else "Unknown"
-        otomatik_tarih = datetime.now().strftime("%d.%m.%Y %H:%M")
+        # --- YORUMCU SEÇİMİ VE PERSONA BELİRLEME ---
+        secilen_yorumcu = user_profile.interpreter_type if user_profile.interpreter_type else "psychological"
+        user_zodiac = user_profile.zodiac if user_profile.zodiac else "Unknown"
+
+        system_persona = ""
         
-        # A. Gemini Sohbetini Başlat
-        chat = model.start_chat(history=[])
-        
-        # B. Rüya Yorumu İsteği
+        if secilen_yorumcu == "religious":
+            # DİNİ / GELENEKSEL (İbn-i Sirin Tarzı)
+            system_persona = """
+            You are Ibn Sirin (Traditional Interpreter). 
+            Interpret the dream as a divine message, omen, or warning based on traditional symbolism (like Ibn-i Sirin).
+            Focus on destiny, moral warnings, and religious good tidings.
+            Tone: Authoritative, wise, fatalistic, and sacred.
+            """
+        elif secilen_yorumcu == "spiritual":
+            # SPİRİTÜEL / KOZMİK (Enerji, Çakra)
+            system_persona = """
+            You are an 'Star Reader' (Spiritual Mystic).
+            Interpret the dream as a flow of cosmic energy, vibrations, and universal messages.
+            Focus on chakras, spiritual alignment, aura, and the connection with the universe.
+            Tone: Ethereal, soothing, magical, and uplifting.
+            """
+        else:
+            # PSİKOLOJİK (Freud/Jung - Varsayılan)
+            system_persona = """
+            You are an 'Healer of the Soul' (Psychological Analyst).
+            Interpret the dream using archetypes and subconscious analysis (like Jung/Freud).
+            Focus on the user's hidden fears, repressed desires, shadow self, and inner conflicts.
+            Tone: Intense, analytical, mysterious, and probing.
+            """
+
+        # --- PREMIUM / FREE TALİMATLARI (AYNI) ---
+        if user_profile.is_premium:
+            ozel_talimatlar = """
+            - **Depth:** Provide a profound, multi-layered analysis based on your specific persona.
+            - **Structure:**
+                1. **Symbol Decoding:** Decode key symbols strictly through your persona's lens.
+                2. **Personal Connection:** Connect the dream to the user's waking life.
+                3. **Specific Advice:** Conclude with advice that fits your persona.
+            - **Length:** Detailed and comprehensive.
+            """
+        else:
+            ozel_talimatlar = """
+            - **Constraint:** Keep the response STRICTLY under 50 words.
+            - **Content:** Provide a "teaser" interpretation only. Identify the single most important symbol.
+            - **Call to Action (CTA):** End by saying: "To hear the full wisdom, unlock Premium."
+            """
+
+        # --- ANA PROMPT BİRLEŞTİRME ---
         prompt = f"""
-### SYSTEM ROLE & OBJECTIVE
-You are an empathetic, insightful counselor specialized in symbolic interpretation, archetypal psychology, and astrological correspondences and coming from Jungian school. Your goal is to analyze the user's dream by 
-decoding symbols, emotional undertones, and latent meanings without explicitly mentioning "Jungian school".
+### SYSTEM ROLE (YOUR PERSONA)
+{system_persona}
 
 ### USER CONTEXT
-- **Zodiac Sign:** {user_profile_zodiac}
-- **Membership Status:** {"PREMIUM" if user_profile.is_premium else "FREE"}
+- **Zodiac Sign:** {user_zodiac}
 - **Dream Content:** "{istek.ruya_metni}"
 
 ### INSTRUCTIONS
-
 1. **Language Detection & Output:**
-   - Analyze the "Dream Content" to detect its language. Do not mention you are interpreting user's dream.
+   - Detect the language of the "Dream Content".
    - **CRITICAL:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
-   - Do NOT mention that you detected the language. Just start speaking in it.
-
-2. **Astrological Integration:**
-   - Subtly weave the user's Zodiac sign ({user_profile_zodiac}) into the analysis.
-   - Mention traits associated with this sign only if they amplify the dream's meaning (e.g., "As a Scorpio, your natural intensity might be fueling this image..."). Do not force it if it doesn't fit.
-
-3. **Analysis Logic (Conditional):**
-
-   **IF USER IS PREMIUM:**
-   - **Depth:** Provide a profound, multi-layered analysis. Explore the "shadow" aspects, emotional resonance, and archetypal imagery.
-   - **Structure:**
-     - Decode the key symbols.
-     - Connect the dream to the user's waking life emotions.
-     - **Behavioral Suggestion:** Conclude with a concrete, psychological exercise or thought pattern change to help the user feel better or integrate the dream's message.
-   - **Tone:** Deep, therapeutic, and transformative.
-
-   **IF USER IS FREE (Non-Premium):**
-   - **Constraint:** Keep the response strictly under 50 words.
-   - **Content:** Provide a "teaser" interpretation. Identify the *single most important symbol* and its surface-level meaning. Be intriguing but incomplete.
-   - **Call to Action (CTA):** You MUST end the response by gently encouraging the user to upgrade to the Premium plan to unlock the full, detailed psychological analysis and behavioral advice.
+   
+2. **Analysis Instructions:**
+{ozel_talimatlar}
 
 ### OUTPUT GENERATION
-Based on the logic above, provide the response now:
-"""
+Speak now, wise one.
+"""       
+        # --- DÜZELTME BİTİŞİ ---
+
+        # A. Gemini Sohbetini Başlat
+        chat = model.start_chat(history=[])
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
-        # C. Başlık ve Duygu Analizi İsteği
-        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Output format strictly: Title | Emotion"
+        # B. Başlık ve Duygu (Aynı kalıyor)
+        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same  the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
         ek_response = chat.send_message(ek_bilgi_prompt)
         ek_metin = ek_response.text.strip()
         
@@ -249,7 +283,7 @@ Based on the logic above, provide the response now:
         except:
             pass 
 
-        # D. Görsel Prompt Oluşturma
+        # C. Görsel Prompt (Aynı kalıyor)
         gorsel_prompt_istegi = f"""Based on the dream above, create a highly detailed, mystical, and artistic image description suitable for an AI image generator.
         Describe the scene, lighting, and mood.
         CRITICAL: The output must be in English regardless of the dream language.
@@ -257,11 +291,14 @@ Based on the logic above, provide the response now:
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
         gorsel_prompt = gorsel_response.text.strip()
         
-        # E. Pollinations.ai ile Resim URL'i Oluşturma
+        # D. Resim URL (Aynı kalıyor)
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
         resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&seed={datetime.now().microsecond}&nologo=true"
 
-        # 4. VERİTABANINA KAYIT
+# --- EKSİK OLAN TANIMLAMA BURAYA EKLENDİ ---
+        # Tarihi string formatında (Gün.Ay.Yıl) alıyoruz
+        otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
+        # 4. KAYIT VE SAYAÇ
         yeni_ruya = models.Ruya(
             user_id=istek.user_id,
             ruya_metni=istek.ruya_metni, 
@@ -273,9 +310,8 @@ Based on the logic above, provide the response now:
         )
         db.add(yeni_ruya)
         
-        # 5. SAYAÇLARI GÜNCELLEME (EN ÖNEMLİ KISIM)
-        user_profile.daily_usage_count += 1    # Günlük istatistik için
-        user_profile.lifetime_usage_count += 1 # Kalıcı limit kontrolü için (+1 ekleniyor)
+        user_profile.daily_usage_count += 1
+        user_profile.lifetime_usage_count += 1
         
         db.commit()
         db.refresh(yeni_ruya)
@@ -291,9 +327,12 @@ Based on the logic above, provide the response now:
     except HTTPException as he:
         raise he 
     except Exception as e:
-        print(f"Analiz Hatası: {e}") # Hata ayıklama için konsola yazdır
+        print(f"Analiz Hatası: {e}")
         raise HTTPException(status_code=500, detail=f"Sunucu hatası: {str(e)}")
-# --- 3. GEÇMİŞ RÜYALAR ---
+    
+    
+    
+    # --- 3. GEÇMİŞ RÜYALAR ---
 
 @app.get("/gecmis")
 def gecmis_getir(user_id: str, db: Session = Depends(get_db)):
