@@ -28,7 +28,7 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 db_available = False
 try:
     # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
-    # B u satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
+    # B gtu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
     #models.Base.metadata.drop_all(bind=engine) 
     # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
@@ -235,7 +235,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             ozel_talimatlar = """
             - **Constraint:** Keep the response STRICTLY under 50 words.
             - **Content:** Provide a "teaser" interpretation only. Identify the single most important symbol.
-            - **Call to Action (CTA):** End by saying: "To hear the full wisdom, unlock Premium."
+            - **Call to Action (CTA):** End by saying  "To hear the full wisdom, unlock Premium." in the **EXACT SAME LANGUAGE** as the dream.
             """
 
         # --- ANA PROMPT BİRLEŞTİRME ---
