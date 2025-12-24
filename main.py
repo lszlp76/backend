@@ -72,7 +72,7 @@ class RuyaIstegi(BaseModel):
 # --- MODEL GÜNCELLEMESİ ---
 class AvatarUpdate(BaseModel):
     user_id: str
-    choice: str 
+    choice: str | None = None
     zodiac: str | None = None
     interpreter_type: str | None = None # <--- YENİ: Yorumcu Tipi
 
