@@ -256,7 +256,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             ozel_talimatlar = """
             - **Constraint:** Keep the response STRICTLY under 50 words.
             - **Content:** Provide a "teaser" interpretation only. Identify the single most important symbol.
-            - **CRITICAL:** End by saying in the **EXACT SAME LANGUAGE** as the dream  "To hear the full wisdom, unlock Premium." .
+            - **Call to Action (CTA):** End by stating: "To hear the full wisdom, unlock Premium." -> CRITICAL: This specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
             """
 
         # --- ANA PROMPT BİRLEŞTİRME ---
