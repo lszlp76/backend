@@ -358,14 +358,6 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         # URL'yi oluştururken promptu encode ediyoruz
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
         
-        # Pollinations bazen uzun seed veya nologo parametresinde hata verebiliyor, sadeleştirelim:
-        # width ve height değerlerini standart tutuyoruz.
-        resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&nologo=true"
-        
-        # Not: Pollinations 500 hatası verirse frontend (Flutter) tarafında resim yüklenemez.
-        # Bu durumda Flutter tarafında "Image.network" hata verdiğinde gösterilecek
-        # bir "errorBuilder" zaten eklemiştik (assets/images/login.png gibi bir görsel gösterebilir).
-
 # --- EKSİK OLAN TANIMLAMA BURAYA EKLENDİ ---
         # Tarihi string formatında (Gün.Ay.Yıl) alıyoruz
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
