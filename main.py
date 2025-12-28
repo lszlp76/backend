@@ -304,17 +304,26 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         except:
             pass 
 
-        # C. Görsel Prompt (Aynı kalıyor)
-        gorsel_prompt_istegi = f"""Based on the dream above, create a highly detailed, mystical, and artistic image description suitable for an AI image generator.
-        Describe the scene, lighting, and mood.
-        CRITICAL: The output must be in English regardless of the dream language.
+       # C. Görsel Prompt (Daha Kısa ve Öz Prompt İste)
+        gorsel_prompt_istegi = f"""
+        Create a very short, artistic image prompt (max 30 words) based on the dream: "{istek.ruya_metni}".
+        Style: Mystical, surreal, digital art.
+        Output: Just the prompt text in English.
         """
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
-        gorsel_prompt = gorsel_response.text.strip()
+        gorsel_prompt = gorsel_response.text.strip().replace("\n", " ").replace('"', '')
         
-        # D. Resim URL (Aynı kalıyor)
+        # D. Resim URL (Hata Yönetimi Eklenmiş Hali)
+        # URL'yi oluştururken promptu encode ediyoruz
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
-        resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&seed={datetime.now().microsecond}&nologo=true"
+        
+        # Pollinations bazen uzun seed veya nologo parametresinde hata verebiliyor, sadeleştirelim:
+        # width ve height değerlerini standart tutuyoruz.
+        resim_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=1024&nologo=true"
+        
+        # Not: Pollinations 500 hatası verirse frontend (Flutter) tarafında resim yüklenemez.
+        # Bu durumda Flutter tarafında "Image.network" hata verdiğinde gösterilecek
+        # bir "errorBuilder" zaten eklemiştik (assets/images/login.png gibi bir görsel gösterebilir).
 
 # --- EKSİK OLAN TANIMLAMA BURAYA EKLENDİ ---
         # Tarihi string formatında (Gün.Ay.Yıl) alıyoruz
