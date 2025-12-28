@@ -202,7 +202,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             db.commit()
 
         # --- GÜNLÜK LİMİT KONTROLÜ (YENİ) ---
-        DAILY_LIMIT = 1 # Günde 1 Rüya Hakkı (Bunu isterseniz 3 yapabilirsiniz)
+        DAILY_LIMIT = 3 # Günde 1 Rüya Hakkı (Bunu isterseniz 3 yapabilirsiniz)
         
         if not user_profile.is_premium and user_profile.daily_usage_count >= DAILY_LIMIT:
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
