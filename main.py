@@ -102,12 +102,22 @@ def health_check():
 @app.get("/get-profile/{user_id}")
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
+    
+    # Bugünün tarihini kontrol et, eskiyse sıfırla (Görüntülerken de güncel olsun)
+    bugun = date.today()
+    current_daily_usage = 0
+    if profile:
+        if profile.last_usage_date != bugun:
+            # Tarih eski, veritabanına kaydetmesek bile frontend'e 0 gönderelim
+            current_daily_usage = 0
+        else:
+            current_daily_usage = profile.daily_usage_count
+   
     if not profile:
-        # Varsayılan değerler
         return {
             "choice": None, 
             "zodiac": None, 
-            "interpreter_type": "psychological", # Varsayılan: Bilimsel/Psikolojik
+            "interpreter_type": "psychological",
             "is_premium": False, 
             "usage_count": 0
         }
@@ -117,7 +127,7 @@ def get_profile(user_id: str, db: Session = Depends(get_db)):
         "zodiac": profile.zodiac,
         "interpreter_type": profile.interpreter_type if profile.interpreter_type else "psychological",
         "is_premium": profile.is_premium,
-        "usage_count": profile.lifetime_usage_count
+        "usage_count": current_daily_usage # <--- ARTIK GÜNLÜK SAYACI GÖNDERİYORUZ
     }
 
 @app.post("/set-profile")
@@ -184,16 +194,22 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             db.add(user_profile)
             db.commit()
 
-        # ... (Limit ve Tarih kontrolleri aynı kalıyor) ...
+        # Tarih Kontrolü ve Sıfırlama
         bugun = date.today()
         if user_profile.last_usage_date != bugun:
             user_profile.daily_usage_count = 0
             user_profile.last_usage_date = bugun
             db.commit()
 
-        LIFETIME_LIMIT = 5
-        if not user_profile.is_premium and user_profile.lifetime_usage_count >= LIFETIME_LIMIT:
+        # --- GÜNLÜK LİMİT KONTROLÜ (YENİ) ---
+        DAILY_LIMIT = 1 # Günde 1 Rüya Hakkı (Bunu isterseniz 3 yapabilirsiniz)
+        
+        if not user_profile.is_premium and user_profile.daily_usage_count >= DAILY_LIMIT:
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
+        ##LİFETIME KONTROLÜ (YORUMLANDI)
+        #LIFETIME_LIMIT = 5
+        #if not user_profile.is_premium and user_profile.lifetime_usage_count >= LIFETIME_LIMIT:
+         #   raise HTTPException(status_code=403, detail="LIMIT_REACHED")
 
         # --- YORUMCU SEÇİMİ VE PERSONA BELİRLEME ---
         secilen_yorumcu = user_profile.interpreter_type if user_profile.interpreter_type else "psychological"
@@ -240,29 +256,29 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             ozel_talimatlar = """
             - **Constraint:** Keep the response STRICTLY under 50 words.
             - **Content:** Provide a "teaser" interpretation only. Identify the single most important symbol.
-            - **Call to Action (CTA):** End by saying  "To hear the full wisdom, unlock Premium." in the **EXACT SAME LANGUAGE** as the dream.
+            - **CRITICAL:** End by saying in the **EXACT SAME LANGUAGE** as the dream  "To hear the full wisdom, unlock Premium." .
             """
 
         # --- ANA PROMPT BİRLEŞTİRME ---
         prompt = f"""
-### SYSTEM ROLE (YOUR PERSONA)
-{system_persona}
+            ### SYSTEM ROLE (YOUR PERSONA)
+            {system_persona}
 
-### USER CONTEXT
-- **Zodiac Sign:** {user_zodiac}
-- **Dream Content:** "{istek.ruya_metni}"
+            ### USER CONTEXT
+            - **Zodiac Sign:** {user_zodiac}
+            - **Dream Content:** "{istek.ruya_metni}"
 
-### INSTRUCTIONS
-1. **Language Detection & Output:**
-   - Detect the language of the "Dream Content".
-   - **CRITICAL:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
+            ### INSTRUCTIONS
+        1. **Language Detection & Output:**
+        - Detect the language of the "Dream Content".** DO NOT SAY WHAT LANGUAGE IT IS.**
+        - **CRITICAL:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
    
-2. **Analysis Instructions:**
-{ozel_talimatlar}
+        2. **Analysis Instructions:**
+        {ozel_talimatlar}
 
-### OUTPUT GENERATION
-Speak now, wise one.
-"""       
+        ### OUTPUT GENERATION
+        Speak now, wise one.
+        """       
         # --- DÜZELTME BİTİŞİ ---
 
         # A. Gemini Sohbetini Başlat
