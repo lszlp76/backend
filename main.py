@@ -14,10 +14,19 @@ from dotenv import load_dotenv
 import models
 from database import engine, SessionLocal
 
+import requests
+import cloudinary
+import cloudinary.uploader
+
 # --- Ayarlar ---
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
-
+cloudinary.config( 
+  cloud_name =os.getenv("CLOUD_NAME"), 
+  cloud_api_key = os.getenv("CLOUD_API_KEY"), 
+  cloud_api_secret = os.getenv("CLOUD_API_SECRET") 
+)
+HF_TOKEN = os.getenv("HF_TOKEN")
 if api_key:
     genai.configure(api_key=api_key)
 
@@ -304,15 +313,47 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         except:
             pass 
 
-       # C. Görsel Prompt (Daha Kısa ve Öz Prompt İste)
+       # -----------------------------------------------------------------------
+        # C. RESİM ÜRETİMİ (HUGGING FACE) VE YÜKLEME (CLOUDINARY)
+        # -----------------------------------------------------------------------
+        
+        # 1. Gemini'den Kısa Prompt İste
         gorsel_prompt_istegi = f"""
-        Create a very short, artistic image prompt (max 30 words) based on the dream: "{istek.ruya_metni}".
-        Style: Mystical, surreal, digital art.
-        Output: Just the prompt text in English.
+        Create a mystical, cinematic, surreal art prompt based on: "{istek.ruya_metni}".
+        Max 15 words. English only. No quotes.
         """
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
-        gorsel_prompt = gorsel_response.text.strip().replace("\n", " ").replace('"', '')
+        gorsel_prompt = gorsel_response.text.strip().replace('"', '')
+
+        resim_url = "" # Varsayılan boş
         
+        try:
+            # 2. Hugging Face API'ye İstek At (Model: Stable Diffusion XL)
+            hf_api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+            headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+            payload = {"inputs": gorsel_prompt}
+
+            response = requests.post(hf_api_url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                # 3. Gelen Resmi Cloudinary'e Yükle
+                # response.content resmin ham byte verisidir
+                upload_result = cloudinary.uploader.upload(
+                    response.content, 
+                    folder="ruya_alemi_resimler"
+                )
+                # 4. Kalıcı URL'yi Al
+                resim_url = upload_result.get("secure_url")
+            else:
+                print(f"HF Hatası: {response.text}")
+                # Hata durumunda varsayılan bir resim dönebilirsiniz
+                resim_url = "https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?q=80&w=1000&auto=format&fit=crop"
+
+        except Exception as e:
+            print(f"Resim Oluşturma Hatası: {e}")
+            # Hata durumunda varsayılan resim
+            resim_url = "https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?q=80&w=1000&auto=format&fit=crop"
+       
         # D. Resim URL (Hata Yönetimi Eklenmiş Hali)
         # URL'yi oluştururken promptu encode ediyoruz
         encoded_prompt = urllib.parse.quote(gorsel_prompt)
