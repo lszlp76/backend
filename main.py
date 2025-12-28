@@ -1,6 +1,6 @@
 import os
 import urllib.parse
-from datetime import datetime, date # <--- DÜZELTME 1: date buraya eklendi
+from datetime import datetime, date
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -36,10 +36,6 @@ model = genai.GenerativeModel("gemini-2.0-flash")
 # --- Veritabanı Başlatma ---
 db_available = False
 try:
-    # --- YENİ EKLENECEK SATIR (GEÇİCİ) ---
-    # B gtu satır mevcut tabloları siler, böylece yeni sütunlarla (burç vb.) tekrar oluşur.
-    #models.Base.metadata.drop_all(bind=engine) 
-    # -------------------------------------
     models.Base.metadata.create_all(bind=engine)
     db_available = True
     print("✅ Veritabanı bağlantısı başarılı!")
@@ -74,7 +70,6 @@ def get_db():
 #              VERİ MODELLERİ (Pydantic)
 # ==========================================
 
-# 1. Yeni Veri Modeli (Sınıfların olduğu yere ekleyin)
 class SembolIstegi(BaseModel):
     sembol: str
     user_id: str
@@ -83,16 +78,16 @@ class RuyaIstegi(BaseModel):
     ruya_metni: str
     user_id: str
 
-# --- MODEL GÜNCELLEMESİ ---
 class AvatarUpdate(BaseModel):
     user_id: str
     choice: str | None = None
     zodiac: str | None = None
-    interpreter_type: str | None = None # <--- YENİ: Yorumcu Tipi
+    interpreter_type: str | None = None
 
 class PremiumUpdate(BaseModel):
     user_id: str
     is_premium: bool
+
 # ==========================================
 #                 ENDPOINTLER
 # ==========================================
@@ -104,20 +99,16 @@ def health_check():
         "database": "connected" if db_available else "disconnected"
     }
 
-# --- 1. AVATAR / PROFİL İŞLEMLERİ ---
-# --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
-# --- GÜNCELLENEN: GET PROFILE (Premium bilgisini de gönderiyoruz) ---
-# --- 1. PROFİL İŞLEMLERİ (GÜNCELLENDİ) ---
+# --- 1. PROFİL İŞLEMLERİ ---
 @app.get("/get-profile/{user_id}")
 def get_profile(user_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     
-    # Bugünün tarihini kontrol et, eskiyse sıfırla (Görüntülerken de güncel olsun)
+    # Bugünün tarihini kontrol et, eskiyse sıfırla
     bugun = date.today()
     current_daily_usage = 0
     if profile:
         if profile.last_usage_date != bugun:
-            # Tarih eski, veritabanına kaydetmesek bile frontend'e 0 gönderelim
             current_daily_usage = 0
         else:
             current_daily_usage = profile.daily_usage_count
@@ -136,7 +127,7 @@ def get_profile(user_id: str, db: Session = Depends(get_db)):
         "zodiac": profile.zodiac,
         "interpreter_type": profile.interpreter_type if profile.interpreter_type else "psychological",
         "is_premium": profile.is_premium,
-        "usage_count": current_daily_usage # <--- ARTIK GÜNLÜK SAYACI GÖNDERİYORUZ
+        "usage_count": current_daily_usage
     }
 
 @app.post("/set-profile")
@@ -148,24 +139,22 @@ def set_profile(data: AvatarUpdate, db: Session = Depends(get_db)):
             user_id=data.user_id, 
             avatar_choice=data.choice,
             zodiac=data.zodiac,
-            interpreter_type=data.interpreter_type # <--- YENİ
+            interpreter_type=data.interpreter_type
         )
         db.add(new_profile)
     else:
         if data.choice: profile.avatar_choice = data.choice
         if data.zodiac: profile.zodiac = data.zodiac
-        if data.interpreter_type: profile.interpreter_type = data.interpreter_type # <--- YENİ
+        if data.interpreter_type: profile.interpreter_type = data.interpreter_type
     
     db.commit()
     return {"status": "success"}
 
-# --- IAP TAMAMLANDI ---
 @app.post("/set-premium")
 def set_premium(data: PremiumUpdate, db: Session = Depends(get_db)):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == data.user_id).first()
     
     if not profile:
-        # Profil yoksa oluştur ve Premium yap
         new_profile = models.UserProfile(
             user_id=data.user_id, 
             is_premium=data.is_premium,
@@ -175,17 +164,13 @@ def set_premium(data: PremiumUpdate, db: Session = Depends(get_db)):
         )
         db.add(new_profile)
     else:
-        # Profil varsa güncelle
         profile.is_premium = data.is_premium
     
     db.commit()
     return {"status": "success", "is_premium": data.is_premium}
 
 
-# --- 2. RÜYA ANALİZ (GÜNCELLENDİ) ---
-# --- 2. RÜYA ANALİZ (GÜNCELLENMİŞ VERSİYON) ---
 # --- 2. RÜYA ANALİZ (DÜZELTİLMİŞ & GARANTİLİ VERSİYON) ---
-# --- 2. RÜYA ANALİZ (YORUMCU MANTIĞI EKLENDİ) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     try:
@@ -197,7 +182,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             user_profile = models.UserProfile(
                 user_id=istek.user_id, 
                 is_premium=False,
-                interpreter_type="psychological", # Varsayılan
+                interpreter_type="psychological",
                 last_usage_date=date.today()
             )
             db.add(user_profile)
@@ -210,15 +195,11 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             user_profile.last_usage_date = bugun
             db.commit()
 
-        # --- GÜNLÜK LİMİT KONTROLÜ (YENİ) ---
-        DAILY_LIMIT = 3 # Günde 1 Rüya Hakkı (Bunu isterseniz 3 yapabilirsiniz)
+        # --- GÜNLÜK LİMİT KONTROLÜ ---
+        DAILY_LIMIT = 3 
         
         if not user_profile.is_premium and user_profile.daily_usage_count >= DAILY_LIMIT:
             raise HTTPException(status_code=403, detail="LIMIT_REACHED")
-        ##LİFETIME KONTROLÜ (YORUMLANDI)
-        #LIFETIME_LIMIT = 5
-        #if not user_profile.is_premium and user_profile.lifetime_usage_count >= LIFETIME_LIMIT:
-         #   raise HTTPException(status_code=403, detail="LIMIT_REACHED")
 
         # --- YORUMCU SEÇİMİ VE PERSONA BELİRLEME ---
         secilen_yorumcu = user_profile.interpreter_type if user_profile.interpreter_type else "psychological"
@@ -227,15 +208,13 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         system_persona = ""
         
         if secilen_yorumcu == "religious":
-            # DİNİ / GELENEKSEL (İbn-i Sirin Tarzı)
             system_persona = """
             You are Ibn Sirin (Traditional Interpreter). 
-            Interpret the dream as a divine message, omen, or warning based on traditional symbolism (like Ibn-i Sirin).
+            Interpret the dream as a divine message, omen, or warning based on traditional symbolism.
             Focus on destiny, moral warnings, and religious good tidings.
             Tone: Authoritative, wise, fatalistic, and sacred.
             """
         elif secilen_yorumcu == "spiritual":
-            # SPİRİTÜEL / KOZMİK (Enerji, Çakra)
             system_persona = """
             You are an 'Star Reader' (Spiritual Mystic).
             Interpret the dream as a flow of cosmic energy, vibrations, and universal messages.
@@ -243,7 +222,6 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             Tone: Ethereal, soothing, magical, and uplifting.
             """
         else:
-            # PSİKOLOJİK (Freud/Jung - Varsayılan)
             system_persona = """
             You are an 'Healer of the Soul' (Psychological Analyst).
             Interpret the dream using archetypes and subconscious analysis (like Jung/Freud).
@@ -251,7 +229,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             Tone: Intense, analytical, mysterious, and probing.
             """
 
-        # --- PREMIUM / FREE TALİMATLARI (AYNI) ---
+        # --- PREMIUM / FREE TALİMATLARI ---
         if user_profile.is_premium:
             ozel_talimatlar = """
             - **Depth:** Provide a profound, multi-layered analysis based on your specific persona.
@@ -288,15 +266,14 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         ### OUTPUT GENERATION
         Speak now, wise one.
         """       
-        # --- DÜZELTME BİTİŞİ ---
 
         # A. Gemini Sohbetini Başlat
         chat = model.start_chat(history=[])
         response = chat.send_message(prompt)
         ai_cevabi = response.text
 
-        # B. Başlık ve Duygu (Aynı kalıyor)
-        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same  the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
+        # B. Başlık ve Duygu
+        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
         ek_response = chat.send_message(ek_bilgi_prompt)
         ek_metin = ek_response.text.strip()
         
@@ -312,56 +289,65 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 ruya_basligi = ek_metin
         except:
             pass 
-
-       # -----------------------------------------------------------------------
-        # C. RESİM ÜRETİMİ (HUGGING FACE) VE YÜKLEME (CLOUDINARY)
-        # -----------------------------------------------------------------------
-        
-        # 1. Gemini'den Kısa Prompt İste
+        # C 
+      # 1. Gemini'den Kısa Prompt İste
         gorsel_prompt_istegi = f"""
-        Create a mystical, cinematic, surreal art prompt based on: "{istek.ruya_metni}".
-        Max 15 words. English only. No quotes.
+        Create a vivid, cinematic, surreal art prompt based on: "{istek.ruya_metni}".
+        Max 10 words. English only. No quotes.
         """
         gorsel_response = chat.send_message(gorsel_prompt_istegi)
-        gorsel_prompt = gorsel_response.text.strip().replace('"', '')
+        gorsel_prompt = gorsel_response.text.strip().replace('"', '').replace('\n', ' ')
+        
+        # URL için promptu encode et
+        encoded_prompt = urllib.parse.quote(gorsel_prompt)
 
-        resim_url = "" # Varsayılan boş
+        resim_url = "" 
         
         try:
-            # 2. Hugging Face API'ye İstek At (Model: Stable Diffusion XL)
-            hf_api_url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
-            headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-            payload = {"inputs": gorsel_prompt}
-
-            response = requests.post(hf_api_url, headers=headers, json=payload)
+            # --- MODEL DENEME ZİNCİRİ ---
+            # 1. Deneme: FLUX (En Kaliteli)
+            models_to_try = ["flux", "turbo", "midjourney"] 
+            response = None
             
-            if response.status_code == 200:
-                # 3. Gelen Resmi Cloudinary'e Yükle
-                # response.content resmin ham byte verisidir
+            for model_name in models_to_try:
+                try:
+                    current_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model={model_name}&width=768&height=1024&nologo=true"
+                    print(f"Resim Deneniyor ({model_name}): {current_url}")
+                    
+                    # İstek at
+                    resp = requests.get(current_url, timeout=20)
+                    
+                    # Eğer başarılıysa ve içerik resimse döngüden çık
+                    if resp.status_code == 200 and "image" in resp.headers.get("content-type", ""):
+                        response = resp
+                        print(f"✅ Başarılı Model: {model_name}")
+                        break
+                    else:
+                        print(f"⚠️ {model_name} başarısız (Status: {resp.status_code}), sıradakine geçiliyor...")
+                        
+                except Exception as ex:
+                    print(f"⚠️ {model_name} hatası: {ex}")
+                    continue
+
+            # Eğer hiçbir model çalışmadıysa response boş kalır
+            if response and response.status_code == 200:
+                print("Cloudinary'e yükleniyor...")
                 upload_result = cloudinary.uploader.upload(
                     response.content, 
                     folder="ruya_alemi_resimler"
                 )
-                # 4. Kalıcı URL'yi Al
                 resim_url = upload_result.get("secure_url")
+                print(f"Yükleme Başarılı: {resim_url}")
             else:
-                print(f"HF Hatası: {response.text}")
-                # Hata durumunda varsayılan bir resim dönebilirsiniz
+                print("❌ Tüm modeller başarısız oldu. Varsayılan resim kullanılıyor.")
                 resim_url = "https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?q=80&w=1000&auto=format&fit=crop"
 
         except Exception as e:
-            print(f"Resim Oluşturma Hatası: {e}")
-            # Hata durumunda varsayılan resim
+            print(f"Genel Resim Hatası: {e}")
             resim_url = "https://images.unsplash.com/photo-1444703686981-a3abbc4d4fe3?q=80&w=1000&auto=format&fit=crop"
-       
-        # D. Resim URL (Hata Yönetimi Eklenmiş Hali)
-        # URL'yi oluştururken promptu encode ediyoruz
-        encoded_prompt = urllib.parse.quote(gorsel_prompt)
-        
-# --- EKSİK OLAN TANIMLAMA BURAYA EKLENDİ ---
-        # Tarihi string formatında (Gün.Ay.Yıl) alıyoruz
-        otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
         # 4. KAYIT VE SAYAÇ
+        otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
+        
         yeni_ruya = models.Ruya(
             user_id=istek.user_id,
             ruya_metni=istek.ruya_metni, 
@@ -394,16 +380,13 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Sunucu hatası: {str(e)}")
     
     
-    
-    # --- 3. GEÇMİŞ RÜYALAR ---
-
+# --- 3. GEÇMİŞ RÜYALAR ---
 @app.get("/gecmis")
 def gecmis_getir(user_id: str, db: Session = Depends(get_db)):
     ruyalar = db.query(models.Ruya).filter(models.Ruya.user_id == user_id).all()
     return ruyalar
 
 # --- 4. RÜYA SİLME ---
-
 @app.delete("/ruya-sil/{id}")
 def ruya_sil(id: int, db: Session = Depends(get_db)):
     ruya = db.query(models.Ruya).filter(models.Ruya.id == id).first()
@@ -415,15 +398,12 @@ def ruya_sil(id: int, db: Session = Depends(get_db)):
     return {"mesaj": "Deleted"}
 
 # ----5. SEMBOL İŞLEMLERİ ----
-# 2. Yeni Endpoint (Diğer endpointlerin altına ekleyin)
 @app.post("/sembol-ara")
 def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
     try:
-        # Kullanıcı tercihine göre yorumcu tipini bul
         user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
         secilen_yorumcu = user_profile.interpreter_type if user_profile and user_profile.interpreter_type else "psychological"
         
-        # Yorumcu Personası Belirle (Kısa versiyon)
         persona_role = ""
         if secilen_yorumcu == "religious":
             persona_role = "Islamic Dream Interpreter (Ibn Sirin style). Focus on divine signs."
@@ -432,7 +412,6 @@ def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
         else:
             persona_role = "Psychologist (Jungian). Focus on archetypes."
 
-        # Prompt Hazırla
         prompt = f"""
         Role: {persona_role}
         Task: Define the dream symbol "{istek.sembol}" strictly in 2-3 sentences.
@@ -440,7 +419,6 @@ def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
         Direct answer only, no intros.
         """
 
-        # Gemini'ye Sor
         chat = model.start_chat(history=[])
         response = chat.send_message(prompt)
         
@@ -453,8 +431,3 @@ def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
 # --- SUNUCUYU BAŞLAT ---
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-
-
