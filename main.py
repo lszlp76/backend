@@ -306,7 +306,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         try:
             # --- MODEL DENEME ZİNCİRİ ---
             # 1. Deneme: FLUX (En Kaliteli)
-            models_to_try = ["flux", "turbo", "midjourney"] 
+            models_to_try = ["turbo", "turbo", "turbo"] 
             response = None
             
             for model_name in models_to_try:
@@ -315,7 +315,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                     print(f"Resim Deneniyor ({model_name}): {current_url}")
                     
                     # İstek at
-                    resp = requests.get(current_url, timeout=20)
+                    resp = requests.get(current_url, timeout=50)
                     
                     # Eğer başarılıysa ve içerik resimse döngüden çık
                     if resp.status_code == 200 and "image" in resp.headers.get("content-type", ""):
