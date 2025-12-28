@@ -65,6 +65,11 @@ def get_db():
 #              VERİ MODELLERİ (Pydantic)
 # ==========================================
 
+# 1. Yeni Veri Modeli (Sınıfların olduğu yere ekleyin)
+class SembolIstegi(BaseModel):
+    sembol: str
+    user_id: str
+
 class RuyaIstegi(BaseModel):
     ruya_metni: str
     user_id: str
@@ -350,6 +355,42 @@ def ruya_sil(id: int, db: Session = Depends(get_db)):
     db.delete(ruya)
     db.commit()
     return {"mesaj": "Deleted"}
+
+# ----5. SEMBOL İŞLEMLERİ ----
+# 2. Yeni Endpoint (Diğer endpointlerin altına ekleyin)
+@app.post("/sembol-ara")
+def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
+    try:
+        # Kullanıcı tercihine göre yorumcu tipini bul
+        user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
+        secilen_yorumcu = user_profile.interpreter_type if user_profile and user_profile.interpreter_type else "psychological"
+        
+        # Yorumcu Personası Belirle (Kısa versiyon)
+        persona_role = ""
+        if secilen_yorumcu == "religious":
+            persona_role = "Islamic Dream Interpreter (Ibn Sirin style). Focus on divine signs."
+        elif secilen_yorumcu == "spiritual":
+            persona_role = "Spiritual Mystic. Focus on energy and universal symbols."
+        else:
+            persona_role = "Psychologist (Jungian). Focus on archetypes."
+
+        # Prompt Hazırla
+        prompt = f"""
+        Role: {persona_role}
+        Task: Define the dream symbol "{istek.sembol}" strictly in 2-3 sentences.
+        Constraint: Output MUST be in the same language as the symbol provided by the user.
+        Direct answer only, no intros.
+        """
+
+        # Gemini'ye Sor
+        chat = model.start_chat(history=[])
+        response = chat.send_message(prompt)
+        
+        return {"sembol": istek.sembol, "anlam": response.text}
+
+    except Exception as e:
+        print(f"Sembol Arama Hatası: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- SUNUCUYU BAŞLAT ---
 if __name__ == "__main__":
