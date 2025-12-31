@@ -236,7 +236,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             - **Call to Action (CTA):** End by stating: "To hear the full wisdom, unlock Premium." -> CRITICAL: This specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
             """
 
-        # --- ANA PROMPT BİRLEŞTİRME ---
+        # --- ANA PROMPT BİRLEŞTİRME (GÜNCELLENDİ) ---
         prompt = f"""
             ### SYSTEM ROLE (YOUR PERSONA)
             {system_persona}
@@ -246,99 +246,114 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             - **Dream Content:** "{istek.ruya_metni}"
 
             ### INSTRUCTIONS
-        1. **Language Detection & Output:**
-        - Detect the language of the "Dream Content".** DO NOT SAY WHAT LANGUAGE IT IS.**
-        - **CRITICAL:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
-   
-        2. **Analysis Instructions:**
-        {ozel_talimatlar}
 
-        ### OUTPUT GENERATION
-        Speak now, wise one.
-        """       
+            #### 1. SAFETY & MODERATION (PRIORITY #1 - CRITICAL)
+            **Before performing any analysis, you MUST evaluate the "Dream Content".**
+            
+            **Refuse to interpret if the content contains:**
+            - Profanity, insults, or vulgar language.
+            - Sexual content, erotic fantasies, or explicit themes.
+            - Hate speech, extreme violence, or self-harm.
+            - Any content unsuitable for a user under 13 years old.
+
+            **IF A VIOLATION IS DETECTED:**
+            - **DO NOT** interpret the dream.
+            - **DO NOT** mention zodiac signs or symbols.
+            - **Start your response EXACTLY with:** "[VIOLATION]"
+            - **OUTPUT ONLY** a warning message in the **Detected Language**.
+            - **Warning Message Guideline:** "Please use appropriate language. I cannot interpret content containing profanity or unsuitable themes." (Translate this sentiment naturally to the target language).
+
+            #### 2. Language Detection & Tone
+            - If content is safe: Detect the language of the "Dream Content".
+            - **Tone:** Your output must be **Family-Friendly (PG-13)** at all times. Even if the dream is scary, keep the interpretation constructive and safe for a younger audience.
+            - **Language:** Your entire response must be in the **EXACT SAME LANGUAGE** as the dream.
+
+            #### 3. Analysis Instructions (Only if Safe)
+            {ozel_talimatlar}
+
+            ### OUTPUT GENERATION
+            Speak now, wise one.
+        """
 
        # A. Gemini Sohbetini Başlat
-        
-       # Yeni SDK'da 'start_chat' yerine 'chats.create' kullanılır.
         chat = client.chats.create(model="gemini-2.0-flash")
         response = chat.send_message(prompt)
         ai_cevabi = response.text
-
-        # B. Başlık ve Duygu
-        ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
-        ek_response = chat.send_message(ek_bilgi_prompt)
-        ek_metin = ek_response.text.strip()
+       # --- GÜVENLİK KONTROLÜ (RESİM İÇİN) ---
+        is_violation = "[VIOLATION]" in ai_cevabi
         
+        # Eğer ihlal varsa etiketi temizle ki kullanıcı görmesin
+        if is_violation:
+            ai_cevabi = ai_cevabi.replace("[VIOLATION]", "").strip()
+
+        # Varsayılan Değerler
         ruya_basligi = "Bilinçaltı Mesajı"
         ruya_duygusu = "Nötr"
-        try:
-            if "|" in ek_metin:
-                parts = ek_metin.split('|')
-                if len(parts) >= 2:
-                    ruya_basligi = parts[0].strip().replace('"', '')
-                    ruya_duygusu = parts[1].strip().replace('.', '')
-            else:
-                ruya_basligi = ek_metin
-        except:
-            pass 
-        # -----------------------------------------------------------------------
-        # C. RESİM ÜRETİMİ (HATA KONTROLLÜ VE LOGLAMALI)
-        # -----------------------------------------------------------------------
-        
-        # 1. Varsayılan güvenli URL
-        resim_url = "https://placehold.co/768x1024/png?text=Ruya+Alemi"
+        resim_url = "https://placehold.co/768x1024/png?text=Uygunsuz+Icerik" # Güvenli varsayılan
 
-        try:
-            # a. Prompt Oluştur
-            gorsel_prompt = "mystic surreal dream art"
+        # SADECE İHLAL YOKSA Diğer İşlemleri Yap
+        if not is_violation:
+            # B. Başlık ve Duygu
             try:
-                img_prompt_req = img_prompt_req = (
-                    f"Create a short, surreal art prompt (max 8 words) for: '{istek.ruya_metni}'. "
-                    "English only. "
-                    "IMPORTANT SAFETY RULES: The image must be suitable for people under 16. "
-                    "STRICTLY NO horror, blood, gore, violence, nightmares, monsters, or disturbing imagery. "
-                    "If the dream is scary, convert it into a soft, magical, or abstract representation. "
-                    "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
-                )
-                img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
-                gorsel_prompt = img_resp.text.strip().replace('"', '').replace('\n', ' ')
-            except Exception as e_prompt:
-                print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
+                ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
+                ek_response = chat.send_message(ek_bilgi_prompt)
+                ek_metin = ek_response.text.strip()
+                
+                if "|" in ek_metin:
+                    parts = ek_metin.split('|')
+                    if len(parts) >= 2:
+                        ruya_basligi = parts[0].strip().replace('"', '')
+                        ruya_duygusu = parts[1].strip().replace('.', '')
+                else:
+                    ruya_basligi = ek_metin
+            except:
+                pass 
 
-            # b. URL'yi Oluştur
-            encoded_prompt = urllib.parse.quote(gorsel_prompt)
-            random_seed = random.randint(1, 99999)
-            
-            # Oluşturulan Aday URL
-            aday_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=turbo&width=768&height=1024&nologo=true&seed={random_seed}"
-            
-            print(f"🔍 URL Kontrol Ediliyor: {aday_url}")
+            # C. RESİM ÜRETİMİ (Sadece güvenli içerikse çalışır)
+            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Alemi" # Varsayılan
 
-            # c. URL'ye İstek Atıp Cevabı Kontrol Et (Validation)
-            # Not: timeout=10 veriyoruz ki sunucu yanıt vermezse sonsuza kadar beklemesin.
-            kontrol = requests.get(aday_url, timeout=10)
+            try:
+                # a. Prompt Oluştur
+                gorsel_prompt = "mystic surreal dream art"
+                try:
+                    img_prompt_req = (
+                        f"Create a short, surreal art prompt (max 8 words) for: '{istek.ruya_metni}'. "
+                        "English only. "
+                        "IMPORTANT SAFETY RULES: The image must be suitable for people under 13. "
+                        "STRICTLY NO horror, blood, gore, violence, nightmares, monsters, or disturbing imagery. "
+                        "If the dream is scary, convert it into a soft, magical, or abstract representation. "
+                        "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
+                    )
+                    img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
+                    gorsel_prompt = img_resp.text.strip().replace('"', '').replace('\n', ' ')
+                except Exception as e_prompt:
+                    print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
 
-            # Cevabın Tipi JSON ise bu bir HATADIR.
-            if "application/json" in kontrol.headers.get("Content-Type", ""):
-                print(f"❌ Pollinations Hata Döndü: {kontrol.text}")
-                # Hata olduğu için resim_url varsayılan (placehold.co) kalır.
-            
-            elif kontrol.status_code == 200:
-                print("✅ Resim Başarıyla Oluşturuldu (Sunucu Yanıtı OK).")
-                resim_url = aday_url
-            
-            else:
-                print(f"⚠️ Beklenmedik Durum (Kod {kontrol.status_code}): {kontrol.text}")
-                # Güvenlik için varsayılanda kalabilir veya risk alıp url atanabilir.
-                # Biz varsayılanda kalmasını tercih ediyoruz.
+                # b. URL'yi Oluştur
+                encoded_prompt = urllib.parse.quote(gorsel_prompt)
+                random_seed = random.randint(1, 99999)
+                
+                aday_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=turbo&width=384&height=512&nologo=true&seed={random_seed}"
+                print(f"🔍 URL Kontrol Ediliyor: {aday_url}")
 
-        except Exception as e:
-            print(f"⚠️ Resim oluşturma sürecinde genel hata: {e}")
-            # Hata durumunda varsayılan resim_url kullanılır.
+                # c. URL'ye İstek Atıp Cevabı Kontrol Et
+                kontrol = requests.get(aday_url, timeout=30)
+                if "application/json" in kontrol.headers.get("Content-Type", ""):
+                    print(f"❌ Pollinations Hata Döndü: {kontrol.text}")
+                elif kontrol.status_code == 200:
+                    print("✅ Resim Başarıyla Oluşturuldu.")
+                    resim_url = aday_url
+                else:
+                    print(f"⚠️ Beklenmedik Durum: {kontrol.status_code}")
 
-        # -----------------------------------------------------------------------
-       
-        # -----------------------------------------------------------------------
+            except Exception as e:
+                print(f"⚠️ Resim oluşturma sürecinde genel hata: {e}")
+        
+        else:
+            # İhlal varsa konsola bilgi düşelim
+            print("🚨 UYGUNSUZ İÇERİK TESPİT EDİLDİ: Resim üretimi atlandı.")
+            ruya_basligi = "Uyarı"
+            ruya_duygusu = "Uygunsuz"
 
         # D. Kayıt
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
@@ -348,6 +363,8 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         )
         db.add(yeni_ruya)
         
+        # Hak düşümü her durumda yapılır (Kötüye kullanımı engellemek için) veya yapılmayabilir.
+        # Burada engellemek adına hakkı düşüyoruz.
         user_profile.daily_usage_count += 1
         user_profile.lifetime_usage_count += 1
         db.commit()
@@ -363,6 +380,113 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"Genel Hata: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+      #çalışan versiyon. resimlere küfür etksini engellemez
+
+    #    # Yeni SDK'da 'start_chat' yerine 'chats.create' kullanılır.
+    #     chat = client.chats.create(model="gemini-2.0-flash")
+    #     response = chat.send_message(prompt)
+    #     ai_cevabi = response.text
+
+    #     # B. Başlık ve Duygu
+    #     ek_bilgi_prompt = "Based on the dream above, create a mysterious title (3-5 words) and identify the dominant emotion. Use same the **EXACT SAME LANGUAGE** as the dream. Output format strictly: Title | Emotion"
+    #     ek_response = chat.send_message(ek_bilgi_prompt)
+    #     ek_metin = ek_response.text.strip()
+        
+    #     ruya_basligi = "Bilinçaltı Mesajı"
+    #     ruya_duygusu = "Nötr"
+    #     try:
+    #         if "|" in ek_metin:
+    #             parts = ek_metin.split('|')
+    #             if len(parts) >= 2:
+    #                 ruya_basligi = parts[0].strip().replace('"', '')
+    #                 ruya_duygusu = parts[1].strip().replace('.', '')
+    #         else:
+    #             ruya_basligi = ek_metin
+    #     except:
+    #         pass 
+    #     # -----------------------------------------------------------------------
+    #     # C. RESİM ÜRETİMİ (HATA KONTROLLÜ VE LOGLAMALI)
+    #     # -----------------------------------------------------------------------
+        
+    #     # 1. Varsayılan güvenli URL
+    #     resim_url = "https://placehold.co/768x1024/png?text=Dream+Journal"
+
+    #     try:
+    #         # a. Prompt Oluştur
+    #         gorsel_prompt = "mystic surreal dream art"
+    #         try:
+    #             img_prompt_req = img_prompt_req = (
+    #                 f"Create a short, surreal art prompt (max 8 words) for: '{istek.ruya_metni}'. "
+    #                 "English only. "
+    #                 "IMPORTANT SAFETY RULES: The image must be suitable for people under 13. "
+    #                 "STRICTLY NO horror, blood, gore, violence, nightmares, monsters, or disturbing imagery. "
+    #                 "If the dream is scary, convert it into a soft, magical, or abstract representation. "
+    #                 "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
+    #             )
+    #             img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
+    #             gorsel_prompt = img_resp.text.strip().replace('"', '').replace('\n', ' ')
+    #         except Exception as e_prompt:
+    #             print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
+
+    #         # b. URL'yi Oluştur
+    #         encoded_prompt = urllib.parse.quote(gorsel_prompt)
+    #         random_seed = random.randint(1, 99999)
+            
+    #         # Oluşturulan Aday URL
+    #         aday_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=turbo&width=384&height=512&nologo=true&seed={random_seed}"
+            
+            
+    #         print(f"🔍 URL Kontrol Ediliyor: {aday_url}")
+
+    #         # c. URL'ye İstek Atıp Cevabı Kontrol Et (Validation)
+    #         # Not: timeout=10 veriyoruz ki sunucu yanıt vermezse sonsuza kadar beklemesin.
+    #         kontrol = requests.get(aday_url, timeout=30)
+
+    #         # Cevabın Tipi JSON ise bu bir HATADIR.
+    #         if "application/json" in kontrol.headers.get("Content-Type", ""):
+    #             print(f"❌ Pollinations Hata Döndü: {kontrol.text}")
+    #             # Hata olduğu için resim_url varsayılan (placehold.co) kalır.
+            
+    #         elif kontrol.status_code == 200:
+    #             print("✅ Resim Başarıyla Oluşturuldu (Sunucu Yanıtı OK).")
+    #             resim_url = aday_url
+            
+    #         else:
+    #             print(f"⚠️ Beklenmedik Durum (Kod {kontrol.status_code}): {kontrol.text}")
+    #             # Güvenlik için varsayılanda kalabilir veya risk alıp url atanabilir.
+    #             # Biz varsayılanda kalmasını tercih ediyoruz.
+
+    #     except Exception as e:
+    #         print(f"⚠️ Resim oluşturma sürecinde genel hata: {e}")
+    #         # Hata durumunda varsayılan resim_url kullanılır.
+
+    #     # -----------------------------------------------------------------------
+       
+    #     # -----------------------------------------------------------------------
+
+    #     # D. Kayıt
+    #     otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
+    #     yeni_ruya = models.Ruya(
+    #         user_id=istek.user_id, ruya_metni=istek.ruya_metni, baslik=ruya_basligi.strip(),
+    #         yorum=ai_cevabi, resim_url=resim_url, duygu=ruya_duygusu.strip(), tarih=otomatik_tarih
+    #     )
+    #     db.add(yeni_ruya)
+        
+    #     user_profile.daily_usage_count += 1
+    #     user_profile.lifetime_usage_count += 1
+    #     db.commit()
+    #     db.refresh(yeni_ruya)
+
+    #     return {
+    #         "baslik": ruya_basligi.strip(), "sonuc": ai_cevabi,
+    #         "resim_url": resim_url, "duygu": ruya_duygusu.strip(), "id": yeni_ruya.id
+    #     }
+
+    # except HTTPException as he:
+    #     raise he 
+    # except Exception as e:
+    #     print(f"Genel Hata: {e}")
+    #     raise HTTPException(status_code=500, detail=str(e))
 
 # --- 3. DİĞER ENDPOINTLER ---
 @app.get("/gecmis")
