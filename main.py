@@ -504,7 +504,8 @@ def ruya_sil(id: int, db: Session = Depends(get_db)):
 @app.post("/sembol-ara")
 def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
     try:
-        prompt = f"Explain the dream symbol '{istek.sembol}' in 2 sentences using a tone suitable for a 10-year-old child. Strictly avoid any sexual, violent, or inappropriate content. If the symbol is explicit, politely refuse or interpret it in a completely innocent way. Use user's language."
+        # Yeni ve Güvenli Hali:
+        prompt = f"Define the dream symbol '{istek.sembol}' in 2 sentences. Content must be strictly family-friendly and safe for children under 13. Avoid all sexual, violent, or offensive descriptions. Respond in the user's language."
         resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
         return {"sembol": istek.sembol, "anlam": resp.text}
     except Exception as e:
