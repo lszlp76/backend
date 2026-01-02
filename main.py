@@ -75,6 +75,7 @@ class SembolIstegi(BaseModel):
 class RuyaIstegi(BaseModel):
     ruya_metni: str
     user_id: str
+    is_premium: bool = False # <--- YENİ EKLENEN (Varsayılan False)
 
 class AvatarUpdate(BaseModel):
     user_id: str
@@ -176,13 +177,22 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         # --- Kullanıcı Kontrolleri ---
         user_profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == istek.user_id).first()
         if not user_profile:
+            # Kullanıcı yoksa oluştururken gelen 'is_premium' bilgisiyle oluştur
             user_profile = models.UserProfile(
-                user_id=istek.user_id, is_premium=False,
-                interpreter_type="psychological", last_usage_date=date.today()
+                user_id=istek.user_id, 
+               is_premium=istek.is_premium, # <--- GÜNCELLENDİ
+                interpreter_type="psychological", 
+                last_usage_date=date.today()
             )
             db.add(user_profile)
             db.commit()
-
+        else:
+            # Kullanıcı varsa, DURUMUNU GÜNCELLE (Aboneliği bitmiş olabilir veya yeni almış olabilir)
+            # Bu satır sayesinde veritabanı her zaman Flutter/RevenueCat ile senkronize kalır.
+            if user_profile.is_premium != istek.is_premium:
+                user_profile.is_premium = istek.is_premium
+                db.commit()
+                
         bugun = date.today()
         if user_profile.last_usage_date != bugun:
             user_profile.daily_usage_count = 0
