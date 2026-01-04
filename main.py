@@ -234,9 +234,9 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             ozel_talimatlar = """
             - **Depth:** Provide a profound, multi-layered analysis based on your specific persona.
             - **Structure:**
-                1. **Symbol Decoding:** Decode key symbols strictly through your persona's lens.
-                2. **Personal Connection:** Connect the dream to the user's waking life.
-                3. **Specific Advice:** Conclude with advice that fits your persona.
+                1. **Symbol Decoding:** Decode key symbols strictly through your persona's lens.CRITICAL: The heading "**Symbol Decoding:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+                2. **Personal Connection:** Connect the dream to the user's waking life.CRITICAL: The heading "**Personal Connection:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+                3. **Specific Advice:** Conclude with advice that fits your persona.CRITICAL: The heading "**Specific Advice:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
             - **Length:** Detailed and comprehensive.
             """
         else:
