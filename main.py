@@ -234,16 +234,18 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             ozel_talimatlar = """
             - **Depth:** Provide a profound, multi-layered analysis based on your specific persona.
             - **Structure:**
-                1. **Symbol Decoding:** Decode key symbols strictly through your persona's lens.CRITICAL: The heading "**Symbol Decoding:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
-                2. **Personal Connection:** Connect the dream to the user's waking life.CRITICAL: The heading "**Personal Connection:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
-                3. **Specific Advice:** Conclude with advice that fits your persona.CRITICAL: The heading "**Specific Advice:**" AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+                1. **Symbol Decoding:** Decode key symbols strictly through your persona's lens.CRITICAL: The heading "**Symbol Decoding:**" SHOULD NOT BE SHOWN AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+                2. **Personal Connection:** Connect the dream to the user's waking life.CRITICAL: The heading "**Personal Connection:**" SHOULD NOT BE SHOWN AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+                3. **Specific Advice:** Conclude with advice that fits your persona.CRITICAL: The heading "**Specific Advice:**" SHOULD NOT BE SHOWN AND this specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
             - **Length:** Detailed and comprehensive.
             """
         else:
             ozel_talimatlar = """
             - **Constraint:** Keep the response STRICTLY under 50 words.
             - **Content:** Provide a "teaser" interpretation only. Identify the single most important symbol.
-            - **Call to Action (CTA):** End by stating: "To hear the full wisdom, unlock Premium." -> CRITICAL: This specific phrase MUST be translated into the **EXACT SAME LANGUAGE** as the dream content.
+            - **Call to Action (CTA):** You MUST end the response with a sentence inviting them to premium. 
+              - The sentence meaning: "To hear the full wisdom, unlock Premium."
+              - **CRITICAL RULE:** This sentence MUST be in the **EXACT SAME LANGUAGE** as the rest of your interpretation. Never leave it in English if the dream is not English.
             """
 
         # --- ANA PROMPT BİRLEŞTİRME (GÜNCELLENDİ) ---
@@ -269,8 +271,10 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             **IF A VIOLATION IS DETECTED:**
             - **DO NOT** interpret the dream.
             - **DO NOT** mention zodiac signs or symbols.
-            - **Start your response EXACTLY with:** "[VIOLATION]"
-            - **OUTPUT ONLY** a warning message in the **Detected Language**.
+            - **Start your response EXACTLY with this structure:** `[VIOLATION] (REASON: <write specific keywords or reason here>) || <Warning Message>`
+            
+            - **Example:** `[VIOLATION] (REASON: sexual content, keyword: naked) || Please use appropriate language.`
+            
             - **Warning Message Guideline:** "Please use appropriate language. I cannot interpret content containing profanity or unsuitable themes." (Translate this sentiment naturally to the target language).
 
             #### 2. Language Detection & Tone
@@ -281,6 +285,15 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             #### 3. Analysis Instructions (Only if Safe)
             {ozel_talimatlar}
 
+            #### 4. OUTPUT FORMAT RESTRICTIONS (STRICT)
+            - **DO NOT** repeat the user's dream text.
+            - **DO NOT** state which language you detected (e.g., "You wrote in Turkish...").
+            - **DO NOT** include introductory filler phrases like "Here is your interpretation," "Based on your dream," or "Greetings user."
+            - **START DIRECTLY** with the first hwith the first sentence of the interpretation.
+            - **ONLY** provide the analysis content requested in step #3.
+
+            ### OUTPUT GENERATION
+            Start analysis now.
             ### OUTPUT GENERATION
             Speak now, wise one.
         """
@@ -288,10 +301,38 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
        # A. Gemini Sohbetini Başlat
         chat = client.chats.create(model="gemini-2.0-flash")
         response = chat.send_message(prompt)
-        ai_cevabi = response.text
-       # --- GÜVENLİK KONTROLÜ (RESİM İÇİN) ---
-        is_violation = "[VIOLATION]" in ai_cevabi
+        ai_cevabi_raw= response.text
+       # --- GÜVENLİK KONTROLÜ (GÜNCELLENDİ) ---
+        is_violation = "[VIOLATION]" in ai_cevabi_raw
         
+        # Kullanıcıya gidecek temiz cevap varsayılan olarak ham cevaptır
+        ai_cevabi = ai_cevabi_raw 
+
+        if is_violation:
+            # Formatımız: [VIOLATION] (REASON: ...) || Kullanıcı Mesajı
+            violation_reason = "Belirtilmemiş"
+            
+            if "||" in ai_cevabi_raw:
+                parts = ai_cevabi_raw.split("||")
+                
+                # Sol taraf (Sebep kısmı): "[VIOLATION] (REASON: xyz)" -> Temizle
+                violation_part = parts[0].strip()
+                violation_reason = violation_part.replace("[VIOLATION]", "").replace("(", "").replace(")", "").strip()
+                
+                # Sağ taraf (Kullanıcı Mesajı): "Lütfen uygun dil kullanın..."
+                if len(parts) > 1:
+                    ai_cevabi = parts[1].strip()
+                else:
+                    # Ayırıcı var ama sağ taraf boşsa
+                    ai_cevabi = "Lütfen uygun bir dille rüyanızı tekrar anlatın."
+            else:
+                # Eğer AI formatı tutturamazsa (|| koymazsa) manuel temizlik yap
+                ai_cevabi = ai_cevabi_raw.replace("[VIOLATION]", "").strip()
+            
+            # KONSOLA DETAYLI YAZDIR
+            print(f"\n🚨 [GÜVENLİK UYARISI] İçerik Engellendi!")
+            print(f"👉 Sebep/Kelimeler: {violation_reason}")
+            print(f"📝 Gelen Rüya: {istek.ruya_metni[:50]}...\n")
         # Eğer ihlal varsa etiketi temizle ki kullanıcı görmesin
         if is_violation:
             ai_cevabi = ai_cevabi.replace("[VIOLATION]", "").strip()
@@ -320,7 +361,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 pass 
 
             # C. RESİM ÜRETİMİ (Sadece güvenli içerikse çalışır)
-            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Alemi" # Varsayılan
+            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Gunlugu" # Varsayılan
 
             try:
                 # a. Prompt Oluştur
