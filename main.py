@@ -16,10 +16,40 @@ from google import genai
 # --- Kendi oluşturduğumuz dosyalar ---
 import models
 from database import engine, SessionLocal
-
+import uuid # Benzersiz dosya isimleri oluşturmak için
+import firebase_admin
+from firebase_admin import credentials, storage
 # --- Ayarlar ---
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
+
+HF_API_KEY = os.getenv("HF_API_KEY") # Hugging Face Anahtarınız
+
+# --- Firebase Admin Başlatma ---
+# --- Firebase Admin Başlatma ---
+if not firebase_admin._apps:
+    try:
+        # Render'daki gizli değişkenden JSON verisini çekmeye çalış
+        firebase_json_str = os.getenv("FIREBASE_SERVICE_ACCOUNT")
+        
+        if firebase_json_str:
+            # 1. Senaryo: Render sunucusundayız
+            cred_dict = json.loads(firebase_json_str)
+            cred = credentials.Certificate(cred_dict)
+            print("✅ Firebase yetkileri gizli değişkenden alındı (Render).")
+        else:
+            # 2. Senaryo: Kendi bilgisayarımızdayız (Localhost)
+            cred = credentials.Certificate("serviceAccountKey.json")
+            print("✅ Firebase yetkileri yerel dosyadan alındı (Local).")
+
+        # DİKKAT: Kendi bucket adresinizle değiştirmeyi unutmayın!
+        firebase_admin.initialize_app(cred, {
+            'storageBucket': 'ruyatabircisi-b0db2.firebasestorage.app' 
+        })
+    except Exception as e:
+        print(f"⚠️ Firebase Admin başlatılamadı: {e}")
+
+
 
 # --- GEMINI CLIENT BAŞLATMA ---
 # --- GEMINI CLIENT BAŞLATMA ---
@@ -151,22 +181,43 @@ def set_premium(data: PremiumUpdate, db: Session = Depends(get_db)):
         profile.is_premium = data.is_premium
     db.commit()
     return {"status": "success"}
+
 #---User ID silme
+
 @app.delete("/delete-account/{user_id}")
 def delete_account(user_id: str, db: Session = Depends(get_db)):
     try:
-        # 1. Önce kullanıcının rüyalarını sil
+        # --- 1. FIREBASE STORAGE'DAKİ RESİMLERİ SİLME (YENİ) ---
+        try:
+            bucket = storage.bucket()
+            # Sadece bu kullanıcıya ait resimleri bul
+            # (Örn: ruya_resimleri/KullaniciID_ ile başlayan tüm dosyalar)
+            prefix = f"ruya_resimleri/{user_id}_"
+            blobs = bucket.list_blobs(prefix=prefix)
+            
+            silinen_resim_sayisi = 0
+            for blob in blobs:
+                blob.delete()
+                silinen_resim_sayisi += 1
+                
+            print(f"✅ Firebase: {user_id} kullanıcısının {silinen_resim_sayisi} resmi başarıyla silindi.")
+        except Exception as e:
+            # Resim silinirken hata olsa bile hesap silme işlemini durdurmamak için except içine alıyoruz
+            print(f"⚠️ Firebase resim silme hatası: {e}")
+        # --------------------------------------------------------
+
+        # --- 2. SQL VERİTABANINDAN SİLME (MEVCUT KOD) ---
+        # Önce kullanıcının rüyalarını sil
         db.query(models.Ruya).filter(models.Ruya.user_id == user_id).delete()
         
-        # 2. Sonra kullanıcı profilini sil
+        # Sonra kullanıcı profilini sil
         db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).delete()
         
         db.commit()
-        return {"status": "success", "message": "User data deleted permanently"}
+        return {"status": "success", "message": f"User data and {silinen_resim_sayisi} images deleted permanently"}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
-
 # --- 2. RÜYA ANALİZ (SADELEŞTİRİLMİŞ) ---
 @app.post("/analiz-et")
 def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
@@ -360,19 +411,18 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
             except:
                 pass 
 
-            # C. RESİM ÜRETİMİ (Sadece güvenli içerikse çalışır)
-            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Gunlugu" # Varsayılan
+         
+            # C. RESİM ÜRETİMİ (HUGGING FACE + FIREBASE STORAGE)
+            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Gunlugu" # Hata anında varsayılan
 
             try:
-                # a. Prompt Oluştur
+                # a. Prompt Oluştur (Gemini ile)
                 gorsel_prompt = "mystic surreal dream art"
                 try:
                     img_prompt_req = (
                         f"Create a short, surreal art prompt (max 8 words) for: '{istek.ruya_metni}'. "
-                        "English only. "
-                        "IMPORTANT SAFETY RULES: The image must be suitable for people under 13. "
+                        "English only. IMPORTANT SAFETY RULES: The image must be suitable for people under 13. "
                         "STRICTLY NO horror, blood, gore, violence, nightmares, monsters, or disturbing imagery. "
-                        "If the dream is scary, convert it into a soft, magical, or abstract representation. "
                         "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
                     )
                     img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
@@ -380,32 +430,38 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 except Exception as e_prompt:
                     print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
 
-                # b. URL'yi Oluştur
-                encoded_prompt = urllib.parse.quote(gorsel_prompt)
-                random_seed = random.randint(1, 99999)
-                
-                aday_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model=turbo&width=384&height=512&nologo=true&seed={random_seed}"
-                print(f"🔍 URL Kontrol Ediliyor: {aday_url}")
+                # b. Hugging Face API'ye İstek At (Stable Diffusion XL modeli)
+                print(f"🎨 Hugging Face'ten resim isteniyor. Prompt: {gorsel_prompt}")
+                hf_api_url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
+                headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+                payload = {"inputs": gorsel_prompt}
 
-                # c. URL'ye İstek Atıp Cevabı Kontrol Et
-                kontrol = requests.get(aday_url, timeout=30)
-                if "application/json" in kontrol.headers.get("Content-Type", ""):
-                    print(f"❌ Pollinations Hata Döndü: {kontrol.text}")
-                elif kontrol.status_code == 200:
-                    print("✅ Resim Başarıyla Oluşturuldu.")
-                    resim_url = aday_url
+                response = requests.post(hf_api_url, headers=headers, json=payload, timeout=45)
+
+                if response.status_code == 200:
+                    image_bytes = response.content
+
+                    # c. Firebase Storage'a Yükle
+                    dosya_adi = f"ruya_resimleri/{istek.user_id}_{uuid.uuid4().hex[:8]}.png"
+                    bucket = storage.bucket()
+                    blob = bucket.blob(dosya_adi)
+
+                    # Resmi buluta yükle
+                    blob.upload_from_string(image_bytes, content_type='image/png')
+
+                    # Dosyayı indirilebilir, kalıcı bir URL'ye çevir (Token kullanmadan)
+                    # Not: Bu linkin çalışması için Firebase Rules ayarı gerekecek.
+                    encoded_dosya_adi = urllib.parse.quote(dosya_adi, safe='')
+                    resim_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{encoded_dosya_adi}?alt=media"
+                    
+                    print(f"✅ Resim başarıyla Firebase'e yüklendi: {resim_url}")
+
                 else:
-                    print(f"⚠️ Beklenmedik Durum: {kontrol.status_code}")
+                    print(f"❌ Hugging Face Hata Döndü: {response.status_code} - {response.text}")
 
             except Exception as e:
-                print(f"⚠️ Resim oluşturma sürecinde genel hata: {e}")
-        
-        else:
-            # İhlal varsa konsola bilgi düşelim
-            print("🚨 UYGUNSUZ İÇERİK TESPİT EDİLDİ: Resim üretimi atlandı.")
-            ruya_basligi = "Uyarı"
-            ruya_duygusu = "Uygunsuz"
-
+                print(f"⚠️ Resim oluşturma/yükleme sürecinde genel hata: {e}")
+                
         # D. Kayıt
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
         yeni_ruya = models.Ruya(
