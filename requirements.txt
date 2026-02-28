@@ -6,3 +6,4 @@ python-dotenv
 google-genai
 requests
 firebase-admin
+psycopg2-binary
