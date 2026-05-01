@@ -3,6 +3,7 @@ import os
 import requests
 import urllib.parse
 import random
+import base64
 from datetime import datetime, date
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -413,11 +414,11 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 pass 
 
          
-            # C. RESİM ÜRETİMİ (HUGGING FACE + FIREBASE STORAGE)
-            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Gunlugu" # Hata anında varsayılan
+           # C. RESİM ÜRETİMİ (TOGETHER AI + FLUX + FIREBASE)
+            resim_url = "https://placehold.co/768x1024/png?text=Ruya+Gunlugu" # Varsayılan
 
             try:
-                # a. Prompt Oluştur (Gemini ile)
+                # a. Prompt Oluştur (Bu kısım aynı kalıyor)
                 gorsel_prompt = "mystic surreal dream art"
                 try:
                     img_prompt_req = (
@@ -431,40 +432,49 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 except Exception as e_prompt:
                     print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
 
-                # b. Hugging Face API'ye İstek At (Stable Diffusion XL modeli)
-                print(f"🎨 Hugging Face'ten resim isteniyor. Prompt: {gorsel_prompt}")
-                # hf_api_url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
-                                 # yeni url
-                hf_api_url = "https://router.huggingface.co/replicate/models/stabilityai/stable-diffusion-3.5-large"  
-                headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-                payload = {"inputs": gorsel_prompt}
+                # b. Together AI'ye İstek At (YENİ VE SAĞLAM MOTOR)
+                print(f"🎨 Together AI (FLUX) resim üretiyor. Prompt: {gorsel_prompt}")
+                
+                together_api_key = os.getenv("TOGETHER_API_KEY")
+                url = "https://api.together.xyz/v1/images/generations"
+                headers = {
+                    "Authorization": f"Bearer {together_api_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": "black-forest-labs/FLUX.1-schnell", # Dünyanın en iyi ve hızlı açık kaynak modeli
+                    "prompt": gorsel_prompt,
+                    "width": 768,
+                    "height": 1024,
+                    "steps": 4,
+                    "n": 1,
+                    "response_format": "b64_json"
+                }
 
-                response = requests.post(hf_api_url, headers=headers, json=payload, timeout=45)
+                response = requests.post(url, headers=headers, json=payload, timeout=45)
 
                 if response.status_code == 200:
-                    image_bytes = response.content
+                    # Gelen resmi çöz ve byte formatına getir
+                    b64_data = response.json()["data"][0]["b64_json"]
+                    image_bytes = base64.b64decode(b64_data)
 
-                    # c. Firebase Storage'a Yükle
+                    # c. Firebase Storage'a Yükle (Bu kısım aynı)
                     dosya_adi = f"ruya_resimleri/{istek.user_id}_{uuid.uuid4().hex[:8]}.png"
                     bucket = storage.bucket()
                     blob = bucket.blob(dosya_adi)
 
-                    # Resmi buluta yükle
                     blob.upload_from_string(image_bytes, content_type='image/png')
 
-                    # Dosyayı indirilebilir, kalıcı bir URL'ye çevir (Token kullanmadan)
-                    # Not: Bu linkin çalışması için Firebase Rules ayarı gerekecek.
                     encoded_dosya_adi = urllib.parse.quote(dosya_adi, safe='')
                     resim_url = f"https://firebasestorage.googleapis.com/v0/b/{bucket.name}/o/{encoded_dosya_adi}?alt=media"
                     
                     print(f"✅ Resim başarıyla Firebase'e yüklendi: {resim_url}")
 
                 else:
-                    print(f"❌ Hugging Face Hata Döndü: {response.status_code} - {response.text}")
+                    print(f"❌ Together AI Hata Döndü: {response.status_code} - {response.text}")
 
             except Exception as e:
-                print(f"⚠️ Resim oluşturma/yükleme sürecinde genel hata: {e}")
-                
+                print(f"⚠️ Resim oluşturma sürecinde genel hata: {e}")
         # D. Kayıt
         otomatik_tarih = datetime.now().strftime("%d.%m.%Y")
         yeni_ruya = models.Ruya(
