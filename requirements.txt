@@ -7,3 +7,4 @@ google-genai
 requests
 firebase-admin
 psycopg2-binary
+base64
