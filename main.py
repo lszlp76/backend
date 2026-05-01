@@ -435,7 +435,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                 print(f"🎨 Hugging Face'ten resim isteniyor. Prompt: {gorsel_prompt}")
                 # hf_api_url = "https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0"
                                  # yeni url
-                 hf_api_url = "https://router.huggingface.co/hf-inference/models/prompthero/openjourney"
+                hf_api_url = "https://router.huggingface.co/hf-inference/models/prompthero/openjourney"
                 headers = {"Authorization": f"Bearer {HF_API_KEY}"}
                 payload = {"inputs": gorsel_prompt}
 
