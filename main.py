@@ -352,7 +352,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
         """
 
        # A. Gemini Sohbetini Başlat
-        chat = client.chats.create(model="gemini-2.0-flash")
+        chat = client.chats.create(model="gemini-2.5-flash")
         response = chat.send_message(prompt)
         ai_cevabi_raw= response.text
        # --- GÜVENLİK KONTROLÜ (GÜNCELLENDİ) ---
@@ -427,7 +427,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                         "STRICTLY NO horror, blood, gore, violence, nightmares, monsters, or disturbing imagery. "
                         "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
                     )
-                    img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
+                    img_resp = client.models.generate_content(model="gemini-2.5-flash", contents=img_prompt_req)
                     gorsel_prompt = img_resp.text.strip().replace('"', '').replace('\n', ' ')
                 except Exception as e_prompt:
                     print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
@@ -503,7 +503,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
       #çalışan versiyon. resimlere küfür etksini engellemez
 
     #    # Yeni SDK'da 'start_chat' yerine 'chats.create' kullanılır.
-    #     chat = client.chats.create(model="gemini-2.0-flash")
+    #     chat = client.chats.create(model="gemini-2.5-flash")
     #     response = chat.send_message(prompt)
     #     ai_cevabi = response.text
 
@@ -543,7 +543,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
     #                 "If the dream is scary, convert it into a soft, magical, or abstract representation. "
     #                 "Use keywords like: ethereal, soft lighting, whimsical, fantasy."
     #             )
-    #             img_resp = client.models.generate_content(model="gemini-2.0-flash", contents=img_prompt_req)
+    #             img_resp = client.models.generate_content(model="gemini-2.5-flash", contents=img_prompt_req)
     #             gorsel_prompt = img_resp.text.strip().replace('"', '').replace('\n', ' ')
     #         except Exception as e_prompt:
     #             print(f"⚠️ Prompt oluşturma hatası: {e_prompt}")
@@ -626,7 +626,7 @@ def sembol_ara(istek: SembolIstegi, db: Session = Depends(get_db)):
     try:
         # Yeni ve Güvenli Hali:
         prompt = f"Define the dream symbol '{istek.sembol}' in 2 sentences. Content must be strictly family-friendly and safe for children under 13. Avoid all sexual, violent, or offensive descriptions. Respond in the user's language."
-        resp = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+        resp = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         return {"sembol": istek.sembol, "anlam": resp.text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
