@@ -442,7 +442,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                     "Content-Type": "application/json"
                 }
                 payload = {
-                    "model": "black-forest-labs/FLUX.1-schnell", # Dünyanın en iyi ve hızlı açık kaynak modeli
+                    "model": "stabilityai/stable-diffusion-xl-base-1.0", # Dünyanın en iyi ve hızlı açık kaynak modeli
                     "prompt": gorsel_prompt,
                     "width": 768,
                     "height": 1024,
