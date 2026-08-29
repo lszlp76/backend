@@ -446,7 +446,7 @@ def analiz_et(istek: RuyaIstegi, db: Session = Depends(get_db)):
                     "prompt": gorsel_prompt,
                     "width": 768,
                     "height": 1024,
-                    "steps": 4,
+                    "steps": 50,
                     "n": 1,
                     "response_format": "b64_json"
                 }
